@@ -14,11 +14,9 @@ import {
   Avatar,
   useTheme,
   useMediaQuery,
-  Collapse,
   Badge,
   AppBar,
   Toolbar,
-  Backdrop,
 } from "@mui/material";
 import {
   Dashboard,
@@ -40,14 +38,13 @@ import {
   Logout,
   ChevronLeft,
   ChevronRight,
-  ExpandLess,
-  ExpandMore,
   Menu as MenuIcon,
   Close as CloseIcon,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router-dom";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
+import { useAuth } from "../contexts/AuthContext";
 
 // ─── Color Constants ──────────────────────────────────────────────────────────
 const PRIMARY_COLOR = "#4569ea";
@@ -66,8 +63,8 @@ const MOBILE_WIDTH = 272;
 // ─── Sidebar Component ────────────────────────────────────────────────────────
 const Sidebar = ({ open, toggleDrawer, onClose }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));   // < 600px
-  const isTablet = useMediaQuery(theme.breakpoints.between("sm", "md")); // 600–900px
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isTablet = useMediaQuery(theme.breakpoints.between("sm", "md"));
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -84,162 +81,125 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
     }
   }, [isCollapsed, isMobile, isTablet]);
 
-  // On tablet, sidebar is always expanded (not collapsible)
   const effectiveCollapsed = isCollapsed && !isMobile && !isTablet;
 
-  // ── Expanded category groups ───────────────────────────────────────────────
-  const [expandedItems, setExpandedItems] = useState({});
+  const { user } = useAuth();
 
-  const toggleExpand = useCallback((title) => {
-    setExpandedItems((prev) => ({ ...prev, [title]: !prev[title] }));
-  }, []);
-
-  // ── Mock user ──────────────────────────────────────────────────────────────
-  const user = { firstName: "John", lastName: "Doe", role: "Head_office" };
-
-  // ── Menu categories ────────────────────────────────────────────────────────
-  const menuCategories = useMemo(
+  // ── Flat menu items in requested order ────────────────────────────────────
+  const menuItems = useMemo(
     () => [
       {
-        title: "Main",
-        items: [
-          {
-            text: "Dashboard",
-            icon: <Dashboard />,
-            path: "/dashboard",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-        ],
+        text: "Dashboard",
+        icon: <Dashboard />,
+        path: "/dashboard",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
       {
-        title: "Leads & Visits",
-        items: [
-          {
-            text: "Total Visits",
-            icon: <Groups />,
-            path: "/total-visits",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Registration",
-            icon: <PersonAdd />,
-            path: "/registration",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "All Leads",
-            icon: <FilterAlt />,
-            path: "/all-leads",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Lead Funnel",
-            icon: <AccountTree />,
-            path: "/lead-funnel",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Missed Leads",
-            icon: <Warning />,
-            path: "/missed-leads",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Import Leads",
-            icon: <CloudUpload />,
-            path: "/import-leads",
-            roles: ["Head_office", "ZSM"],
-          },
-        ],
+        text: "Lead Funnel",
+        icon: <AccountTree />,
+        path: "/lead-funnel",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
       {
-        title: "Financial",
-        items: [
-          {
-            text: "Bank Loan",
-            icon: <AccountBalance />,
-            path: "/bank-loan-apply",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Loan Pending",
-            icon: <PendingActions />,
-            path: "/bank-at-pending",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Disbursement",
-            icon: <ReceiptLong />,
-            path: "/disbursement",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Expense",
-            icon: <Paid />,
-            path: "/expense",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-        ],
+        text: "All Leads",
+        icon: <FilterAlt />,
+        path: "/all-leads",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
       {
-        title: "Operations",
-        items: [
-          {
-            text: "Document",
-            icon: <Description />,
-            path: "/document-submission",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Installation",
-            icon: <TaskAlt />,
-            path: "/installation-completion",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Attendance",
-            icon: <CalendarMonth />,
-            path: "/attendance",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-          {
-            text: "Team Tracking",
-            icon: <LocationOnIcon />,
-            path: "/team-tracking",
-            roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-          },
-        ],
+        text: "Total Visits",
+        icon: <Groups />,
+        path: "/total-visits",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
       {
-        title: "Management",
-        items: [
-          {
-            text: "Users",
-            icon: <AdminPanelSettings />,
-            path: "/user-management",
-            roles: ["Head_office", "ZSM", "ASM"],
-          },
-          {
-            text: "Reports",
-            icon: <Insights />,
-            path: "/reports",
-            roles: ["Head_office", "ZSM", "ASM"],
-          },
-        ],
+        text: "Registration",
+        icon: <PersonAdd />,
+        path: "/registration",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Document",
+        icon: <Description />,
+        path: "/document-submission",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Bank Loan",
+        icon: <AccountBalance />,
+        path: "/bank-loan-apply",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Loan Pending",
+        icon: <PendingActions />,
+        path: "/bank-at-pending",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Disbursement",
+        icon: <ReceiptLong />,
+        path: "/disbursement",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Installation",
+        icon: <TaskAlt />,
+        path: "/installation-completion",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Missed Leads",
+        icon: <Warning />,
+        path: "/missed-leads",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Attendance",
+        icon: <CalendarMonth />,
+        path: ["Head_office", "ZSM", "ASM"].includes(user?.role)
+          ? "/team-attendance"
+          : "/attendance",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Location Visit",
+        icon: <LocationOnIcon />,
+        path: "/team-tracking",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Expense",
+        icon: <Paid />,
+        path: "/expense",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      // Management items (restricted roles)
+      {
+        text: "Import Leads",
+        icon: <CloudUpload />,
+        path: "/import-leads",
+        roles: ["Head_office", "ZSM"],
+      },
+      {
+        text: "Users",
+        icon: <AdminPanelSettings />,
+        path: "/user-management",
+        roles: ["Head_office", "ZSM", "ASM"],
+      },
+      {
+        text: "Reports",
+        icon: <Insights />,
+        path: "/reports",
+        roles: ["Head_office", "ZSM", "ASM"],
       },
     ],
-    [],
+    [user?.role],
   );
 
-  const filteredCategories = useMemo(
-    () =>
-      menuCategories
-        .map((cat) => ({
-          ...cat,
-          items: cat.items.filter((i) => i.roles.includes(user?.role)),
-        }))
-        .filter((cat) => cat.items.length > 0),
-    [menuCategories, user?.role],
+  const filteredItems = useMemo(
+    () => menuItems.filter((item) => item.roles.includes(user?.role)),
+    [menuItems, user?.role],
   );
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -259,8 +219,8 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
     `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}`.toUpperCase() || "U";
 
   // ── Item button styles ─────────────────────────────────────────────────────
-  const itemBtnSx = (active, indent = false) => ({
-    pl: effectiveCollapsed ? 0 : indent ? 3.5 : 2,
+  const itemBtnSx = (active) => ({
+    pl: effectiveCollapsed ? 0 : 2,
     justifyContent: effectiveCollapsed ? "center" : "flex-start",
     borderRadius: "10px",
     mx: effectiveCollapsed ? 0.5 : 1,
@@ -277,14 +237,14 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
   });
 
   // ── Render single menu item ────────────────────────────────────────────────
-  const renderMenuItem = (item, indent = false) => {
+  const renderMenuItem = (item) => {
     const active = isActive(item.path);
 
     const btn = (
       <ListItemButton
         key={item.path}
         onClick={() => handleNavigate(item.path)}
-        sx={itemBtnSx(active, indent)}
+        sx={itemBtnSx(active)}
       >
         <ListItemIcon
           sx={{
@@ -342,55 +302,6 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
     );
   };
 
-  // ── Render category group ──────────────────────────────────────────────────
-  const renderCategory = (category) => {
-    const isExpanded = expandedItems[category.title] !== false; // default open
-
-    if (effectiveCollapsed) {
-      return (
-        <Box key={category.title}>
-          <Divider sx={{ borderColor: BORDER_COLOR, my: 0.5, mx: 1 }} />
-          {category.items.map((item) => renderMenuItem(item, false))}
-        </Box>
-      );
-    }
-
-    return (
-      <Box key={category.title} sx={{ mb: 0.5 }}>
-        <ListItemButton
-          onClick={() => toggleExpand(category.title)}
-          sx={{
-            px: 2,
-            py: 0.6,
-            borderRadius: "8px",
-            mx: 1,
-            "&:hover": { bgcolor: HOVER_BG },
-          }}
-        >
-          <ListItemText
-            primary={category.title}
-            primaryTypographyProps={{
-              fontSize: "0.68rem",
-              fontWeight: 700,
-              color: "rgba(255,255,255,0.55)",
-              textTransform: "uppercase",
-              letterSpacing: "1px",
-            }}
-          />
-          {isExpanded ? (
-            <ExpandLess sx={{ color: "rgba(255,255,255,0.5)", fontSize: 16 }} />
-          ) : (
-            <ExpandMore sx={{ color: "rgba(255,255,255,0.5)", fontSize: 16 }} />
-          )}
-        </ListItemButton>
-
-        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-          {category.items.map((item) => renderMenuItem(item, true))}
-        </Collapse>
-      </Box>
-    );
-  };
-
   // ── Scroll area ────────────────────────────────────────────────────────────
   const scrollArea = (
     <Box
@@ -408,7 +319,7 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
         "&::-webkit-scrollbar-track": { background: "transparent" },
       }}
     >
-      {filteredCategories.map((cat) => renderCategory(cat))}
+      {filteredItems.map((item) => renderMenuItem(item))}
     </Box>
   );
 
@@ -441,7 +352,7 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
         }}
       >
         <Typography
-          sx={{ fontSize: effectiveCollapsed ? "1rem" : "1.2rem", lineHeight: 1 , color:"#fff" }}
+          sx={{ fontSize: effectiveCollapsed ? "1rem" : "1.2rem", lineHeight: 1, color: "#fff" }}
         >
           ☀
         </Typography>
@@ -494,7 +405,7 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
             border: "2px solid rgba(255,255,255,0.28)",
           }}
         >
-          <Typography sx={{ fontSize: "1.1rem" , color:"#fff" }}>☀</Typography>
+          <Typography sx={{ fontSize: "1.1rem", color: "#fff" }}>☀</Typography>
         </Box>
         <Box>
           <Typography
@@ -779,7 +690,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               border: "1.5px solid rgba(255,255,255,0.25)",
             }}
           >
-            <Typography sx={{ fontSize: "0.95rem", lineHeight: 1 , color:"#fff" }}>☀</Typography>
+            <Typography sx={{ fontSize: "0.95rem", lineHeight: 1, color: "#fff" }}>☀</Typography>
           </Box>
           <Typography
             variant="subtitle1"
@@ -794,7 +705,6 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
           </Typography>
         </Box>
 
-        {/* Page title chip */}
         <Typography
           variant="caption"
           sx={{
@@ -848,17 +758,14 @@ export const AppLayout = ({ children }) => {
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f4f6fb" }}>
-      {/* Mobile top bar */}
       <MobileTopBar onMenuClick={() => setMobileOpen(true)} />
 
-      {/* Sidebar */}
       <Sidebar
         open={mobileOpen}
         toggleDrawer={() => setMobileOpen(true)}
         onClose={() => setMobileOpen(false)}
       />
 
-      {/* Main content */}
       <Box
         component="main"
         sx={{
@@ -868,7 +775,6 @@ export const AppLayout = ({ children }) => {
           minHeight: "100vh",
           transition: "margin-left 0.3s cubic-bezier(0.4,0,0.2,1)",
           overflow: "auto",
-          // Safe area insets for notched phones
           pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
         }}
       >

@@ -83,7 +83,7 @@ const SECONDARY = "#1a237e";
 const SUCCESS = "#22c55e";
 const WARNING = "#f59e0b";
 const API_BASE = (
-  process.env.REACT_APP_API_URL || "https://backend.sunergytechsolar.com/api/v1"
+  process.env.REACT_APP_API_URL || "http://localhost:9001/api/v1"
 ).replace(/\/+$/, "");
 
 // Role-based access control
