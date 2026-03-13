@@ -14,6 +14,7 @@
     "@mui/x-date-pickers": "^6.19.5",
     "@react-google-maps/api": "^2.20.8",
     "axios": "^1.6.8",
+    "cors": "^2.8.6",
     "date-fns": "^2.30.0",
     "file-saver": "^2.0.5",
     "framer-motion": "^10.18.0",
