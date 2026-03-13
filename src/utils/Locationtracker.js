@@ -2,7 +2,7 @@
 // Single source of truth for GPS tracking.
 // Call startTracking() on punch-in, stopTracking() on punch-out.
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:9001";
+const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 
 let watchId = null;
 let buffer = [];       // unsent points waiting for next flush
