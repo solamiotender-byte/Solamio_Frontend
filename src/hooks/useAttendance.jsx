@@ -45,16 +45,21 @@ export const useAttendance = () => {
   }, []);
 
   // ── fetchAttendances ───────────────────────────────────────────────────────
+  // FIX: params were being built but never appended to the URL.
+  // Now we build a query string and pass it to fetchAPI.
   const fetchAttendances = useCallback(
     async (filters = {}) => {
       setLoading(true);
       setError(null);
       try {
+        // Build query string from filters (skip empty values)
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([k, v]) => {
           if (v !== undefined && v !== null && v !== "") params.append(k, v);
         });
-        const url = `/attendance/`;
+        const qs = params.toString();
+        const url = `/attendance/${qs ? `?${qs}` : ""}`;   // ← FIX: actually use the params
+
         const res = await fetchAPI(url);
 
         if (res?.success && res?.result) {
@@ -77,8 +82,7 @@ export const useAttendance = () => {
 
           const todayStr = new Date().toDateString();
           const today =
-            list.find((a) => new Date(a.date).toDateString() === todayStr) ||
-            null;
+            list.find((a) => new Date(a.date).toDateString() === todayStr) || null;
           setTodayAttendance(today);
 
           return res.result;
@@ -104,14 +108,21 @@ export const useAttendance = () => {
   );
 
   // ── getTeamMembers ─────────────────────────────────────────────────────────
+  // FIX: was calling /user/getAllUsers (missing 's'), now /users/getAllUsers
   const getTeamMembers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchAPI("/user/getAllUsers");
+      const res = await fetchAPI("/users/getAllUsers?role=TEAM&limit=200"); // ← FIX
       if (res?.success) {
-        const all = res.result?.users || [];
-        return all.filter((u) => u.role === "TEAM");
+        // Handle various response shapes
+        const list =
+          res.result?.users ||
+          res.result?.data?.users ||
+          res.result?.data ||
+          res.result ||
+          [];
+        return Array.isArray(list) ? list : [];
       }
       return [];
     } catch (err) {
@@ -152,11 +163,9 @@ export const useAttendance = () => {
         setError(msg);
         return { success: false, error: msg };
       }
-
       setLoading(true);
       setError(null);
       setSuccess(null);
-
       try {
         const result = await authPunchIn({
           latitude: locationData.latitude,
@@ -164,7 +173,6 @@ export const useAttendance = () => {
           accuracy: locationData.accuracy,
           address: locationData.address,
         });
-
         if (result?.success) {
           setSuccess(result.message || "Punch in successful");
           await fetchAttendances();
@@ -190,11 +198,9 @@ export const useAttendance = () => {
         setError(msg);
         return { success: false, error: msg };
       }
-
       setLoading(true);
       setError(null);
       setSuccess(null);
-
       try {
         const result = await authPunchOut({
           latitude: locationData.latitude,
@@ -202,7 +208,6 @@ export const useAttendance = () => {
           accuracy: locationData.accuracy,
           address: locationData.address,
         });
-
         if (result?.success) {
           setSuccess(result.message || "Punch out successful");
           await fetchAttendances();
@@ -228,18 +233,15 @@ export const useAttendance = () => {
         setError(msg);
         return { success: false, error: msg };
       }
-
       setLoading(true);
       setError(null);
       setSuccess(null);
-
       try {
         const res = await fetchAPI(`/attendance/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
-
         if (res?.success) {
           setSuccess(res.message || "Attendance updated successfully");
           await fetchAttendances();
@@ -264,11 +266,9 @@ export const useAttendance = () => {
         setError(msg);
         return { success: false, error: msg };
       }
-
       setLoading(true);
       setError(null);
       setSuccess(null);
-
       try {
         const res = await fetchAPI(`/attendance/${id}`, { method: "DELETE" });
         if (res?.success) {

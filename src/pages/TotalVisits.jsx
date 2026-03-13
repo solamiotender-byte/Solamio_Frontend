@@ -1599,6 +1599,8 @@ const EditVisitModal = React.memo(
       visitLocation: "",
       status: "Visit",
       visitNotes: "",
+      locationImage: null,       
+  locationImagePreview: null, 
     });
     const [validationErrors, setValidationErrors] = useState({});
 
@@ -1614,10 +1616,34 @@ const EditVisitModal = React.memo(
           visitLocation: visit.visitLocation || "",
           status: visit.status || "Visit",
           visitNotes: visit.visitNotes || "",
+          locationImage: null,
+locationImagePreview: visit.locationImageUrl || null,
         });
         setValidationErrors({});
       }
     }, [open, visit]);
+
+
+  const handleLocationImageChange = useCallback((event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    showSnackbar("Image must be under 5MB", "error");
+    return;
+  }
+  if (!["image/jpeg", "image/jpg", "image/png"].includes(file.type)) {
+    showSnackbar("Only JPG and PNG images are allowed", "error");
+    return;
+  }
+  const previewUrl = URL.createObjectURL(file);
+  setEditForm((prev) => ({
+    ...prev,
+    locationImage: file,
+    locationImagePreview: previewUrl,
+  }));
+}, [showSnackbar]);
+
+
 
     const validateForm = useCallback(() => {
       const errors = {};
@@ -1639,53 +1665,55 @@ const EditVisitModal = React.memo(
     }, [editForm]);
 
     const handleSubmit = useCallback(async () => {
-      if (!validateForm()) {
-        showSnackbar("Please fix the errors in the form", "error");
-        return;
-      }
+  if (!validateForm()) {
+    showSnackbar("Please fix the errors in the form", "error");
+    return;
+  }
 
-      try {
-        const payload = {
-          visitStatus: editForm.visitStatus,
-          ...(editForm.visitDate && {
-            visitDate: format(editForm.visitDate, "yyyy-MM-dd"),
-          }),
-          ...(editForm.visitTime && { visitTime: editForm.visitTime.trim() }),
-          ...(editForm.visitLocation && {
-            visitLocation: editForm.visitLocation.trim(),
-          }),
-          status: editForm.status,
-          ...(editForm.visitNotes && {
-            visitNotes: editForm.visitNotes.trim(),
-          }),
-        };
+  try {
+    let body;
+    let headers = { "Content-Type": "application/json" };
 
-        const response = await fetchAPI(`/lead/updateLead/${visit._id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+    const payload = {
+      visitStatus: editForm.visitStatus,
+      ...(editForm.visitDate && { visitDate: format(editForm.visitDate, "yyyy-MM-dd") }),
+      ...(editForm.visitTime && { visitTime: editForm.visitTime.trim() }),
+      ...(editForm.visitLocation && { visitLocation: editForm.visitLocation.trim() }),
+      status: editForm.status,
+      ...(editForm.visitNotes && { visitNotes: editForm.visitNotes.trim() }),
+    };
 
-        if (response?.success) {
-          showSnackbar("Visit updated successfully", "success");
-          onSave(response.result);
-          onClose();
-        } else {
-          throw new Error(response?.message || "Update failed");
-        }
-      } catch (error) {
-        console.error("Update error:", error);
-        showSnackbar(error.message || "Update failed", "error");
-      }
-    }, [
-      editForm,
-      validateForm,
-      visit,
-      fetchAPI,
-      showSnackbar,
-      onSave,
-      onClose,
-    ]);
+    if (editForm.locationImage) {
+      const formData = new FormData();
+      Object.entries(payload).forEach(([k, v]) => formData.append(k, v));
+      formData.append("locationImage", editForm.locationImage);
+      body = formData;
+      headers = {}; // let browser set multipart boundary
+    } else {
+      body = JSON.stringify(payload);
+    }
+
+    const response = await fetchAPI(`/lead/updateLead/${visit._id}`, {
+      method: "PUT",
+      headers,
+      body,
+    });
+
+    if (response?.success) {
+      showSnackbar("Visit updated successfully", "success");
+      onSave(response.result);
+      onClose();
+    } else {
+      throw new Error(response?.message || "Update failed");
+    }
+  } catch (error) {
+    console.error("Update error:", error);
+    showSnackbar(error.message || "Update failed", "error");
+  }
+}, [editForm, validateForm, visit, fetchAPI, showSnackbar, onSave, onClose]);
+
+
+  
 
     const handleChange = useCallback(
       (field) => (event) => {
@@ -1841,6 +1869,100 @@ const EditVisitModal = React.memo(
               size="small"
               placeholder="Add any notes related to this visit"
             />
+            {editForm.visitStatus === "Completed" && (
+  <Box>
+    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: PRIMARY_COLOR }}>
+      Location Image
+      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+        (JPG/PNG, max 5MB)
+      </Typography>
+    </Typography>
+
+    {editForm.locationImagePreview ? (
+      <Box sx={{ width: "100%" }}>
+        <Box
+          component="img"
+          src={editForm.locationImagePreview}
+          alt="Location"
+          sx={{
+            width: "100%",
+            maxHeight: 200,
+            objectFit: "cover",
+            borderRadius: 2,
+            border: `1px solid ${alpha(PRIMARY_COLOR, 0.2)}`,
+            display: "block",
+          }}
+        />
+        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            component="label"
+            sx={{ borderColor: PRIMARY_COLOR, color: PRIMARY_COLOR, flex: 1 }}
+          >
+            Change Image
+            <input
+              type="file"
+              hidden
+              accept="image/jpeg,image/jpg,image/png"
+              onChange={handleLocationImageChange}
+            />
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() =>
+              setEditForm((prev) => ({
+                ...prev,
+                locationImage: null,
+                locationImagePreview: null,
+              }))
+            }
+            sx={{ borderColor: "error.main", color: "error.main", flex: 1 }}
+          >
+            Remove
+          </Button>
+        </Stack>
+      </Box>
+    ) : (
+      <Box
+        component="label"
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1,
+          border: "2px dashed",
+          borderColor: alpha(PRIMARY_COLOR, 0.3),
+          borderRadius: 2,
+          p: 3,
+          cursor: "pointer",
+          bgcolor: alpha(PRIMARY_COLOR, 0.02),
+          "&:hover": {
+            bgcolor: alpha(PRIMARY_COLOR, 0.05),
+            borderColor: PRIMARY_COLOR,
+          },
+          transition: "all 0.2s",
+        }}
+      >
+        <input
+          type="file"
+          hidden
+          accept="image/jpeg,image/jpg,image/png"
+          onChange={handleLocationImageChange}
+        />
+        <LocationOn sx={{ fontSize: 40, color: alpha(PRIMARY_COLOR, 0.5) }} />
+        <Typography variant="body2" color="text.secondary" textAlign="center">
+          Click to upload location photo
+        </Typography>
+        <Typography variant="caption" color="text.disabled">
+          JPG or PNG, max 5MB
+        </Typography>
+      </Box>
+    )}
+  </Box>
+)}
 
             <FormControl fullWidth size="small">
               <InputLabel>Lead Status</InputLabel>

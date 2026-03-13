@@ -158,9 +158,18 @@ const ALLOWED_FILE_TYPES = [
 const REGISTRATION_STATUS_OPTIONS = [
   "pending",
   "completed",
+  "inProgress"
 ];
 
 const REGISTRATION_STATUS_CONFIG = {
+  "inProgress": {           // ✅ key matches the option value exactly
+    bg: alpha(PRIMARY, 0.08),
+    color: PRIMARY,
+    icon: <AccessTime sx={{ fontSize: 16 }} />,
+    label: "In Progress",
+    description: "Registration is in progress",
+    order: 3,
+  },
   pending: {
     bg: alpha(PRIMARY, 0.08),
     color: PRIMARY,
@@ -260,9 +269,9 @@ const getUserPermissions = (userRole) => ({
 });
 
 const getRegistrationStatusConfig = (status) => {
-  const normalizedStatus = status?.toLowerCase();
+  // const normalizedStatus = status?.toLowerCase();
   return (
-    REGISTRATION_STATUS_CONFIG[normalizedStatus] || {
+    REGISTRATION_STATUS_CONFIG[status] || {
       bg: alpha(PRIMARY, 0.08),
       color: PRIMARY,
       icon: <Warning sx={{ fontSize: 16 }} />,
@@ -2017,7 +2026,7 @@ const EditRegistrationModal = ({
     pincode: "",
     solarRequirement: "",
     dateOfRegistration: null,
-    registrationStatus: "pending",
+    registrationStatus: "In progress",
     registrationNotes: "",
     status: "Registration",
   });
@@ -2035,7 +2044,7 @@ const EditRegistrationModal = ({
           : registration.createdAt
             ? parseISO(registration.createdAt)
             : null,
-        registrationStatus: registration.registrationStatus || "pending",
+        registrationStatus: registration.registrationStatus || "inProgress",
         registrationNotes: registration.registrationNotes || "",
         status: registration.status || "Registration",
       });

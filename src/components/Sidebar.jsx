@@ -163,12 +163,12 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
         roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
       {
-        text: "Location Visit",
-        icon: <LocationOnIcon />,
-        path: "/team-tracking",
-        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
-      },
-      {
+  text: "Location Visit",
+  icon: <LocationOnIcon />,
+path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
+  roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+}
+    ,  {
         text: "Expense",
         icon: <Paid />,
         path: "/expense",

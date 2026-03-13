@@ -1,4 +1,4 @@
-// pages/Attandance.jsx  (handles both own view and admin /attendance/:userId view)
+// pages/Attendance.jsx  (handles both own view and admin /attendance/:userId view)
 import React, {
   useState, useEffect, useCallback, useMemo, useRef,
 } from "react";
@@ -19,22 +19,23 @@ import {
   CalendarToday, ChevronLeft, ChevronRight, AccessTime,
   Person, CheckCircle, Warning, Error as ErrorIcon,
   Visibility, Delete, Login, Logout, LocationOn, Close,
-  Dashboard, Group, ExpandMore, Search, FilterAlt, Clear,
+  Dashboard, ExpandMore, Search, FilterAlt, Clear,
   Refresh, GpsFixed, GpsNotFixed, Timer, PlayArrow, Home,
   Business, MyLocation, FileDownload, Print, ContentCopy,
   Deselect, ArrowBack, Phone, Email,
 } from "@mui/icons-material";
+import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import { useAttendance } from "../hooks/useAttendance";
 import { useGeo } from "../hooks/useGeo";
 import AttendanceDetails, {
   generateCSV, generateJSON, downloadFile, printRecord,
 } from "./AttendanceDetails";
-import TeamAttendance from "./TeamAttendance";
 import { format, differenceInSeconds } from "date-fns";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+const API       = import.meta.env.VITE_API_URL || "http://localhost:9001";
 const PRIMARY   = "#4569ea";
 const SECONDARY = "#1a237e";
 const SUCCESS   = "#22c55e";
@@ -51,11 +52,11 @@ const PERIOD_OPTIONS = [
 ];
 
 const STATUS_CONFIG = {
-  present: { bg: alpha(SUCCESS, 0.1), color: SUCCESS,    icon: <CheckCircle sx={{ fontSize: 14 }} />, label: "Present" },
-  absent:  { bg: alpha(DANGER,  0.1), color: DANGER,     icon: <ErrorIcon   sx={{ fontSize: 14 }} />, label: "Absent"  },
-  late:    { bg: alpha(WARNING, 0.1), color: WARNING,    icon: <Warning     sx={{ fontSize: 14 }} />, label: "Late"    },
-  leave:   { bg: alpha("#a855f7", 0.1), color: "#a855f7",icon: <Person      sx={{ fontSize: 14 }} />, label: "Leave"   },
-  holiday: { bg: alpha("#3b82f6", 0.1), color: "#3b82f6",icon: <CalendarToday sx={{ fontSize: 14 }} />, label: "Holiday" },
+  present: { bg: alpha(SUCCESS, 0.1), color: SUCCESS,      icon: <CheckCircle sx={{ fontSize: 14 }} />, label: "Present" },
+  absent:  { bg: alpha(DANGER,  0.1), color: DANGER,       icon: <ErrorIcon   sx={{ fontSize: 14 }} />, label: "Absent"  },
+  late:    { bg: alpha(WARNING, 0.1), color: WARNING,      icon: <Warning     sx={{ fontSize: 14 }} />, label: "Late"    },
+  leave:   { bg: alpha("#a855f7", 0.1), color: "#a855f7",  icon: <Person      sx={{ fontSize: 14 }} />, label: "Leave"   },
+  holiday: { bg: alpha("#3b82f6", 0.1), color: "#3b82f6",  icon: <CalendarToday sx={{ fontSize: 14 }} />, label: "Holiday" },
 };
 
 // ─── useWorkTimer ─────────────────────────────────────────────────────────────
@@ -190,9 +191,9 @@ const LiveTimer = ({ startTime, isRunning }) => {
 
 // ─── LocationPermissionDialog ─────────────────────────────────────────────────
 const LocationPermissionDialog = ({ open, mode, onAllow, onDeny, requesting }) => {
-  const isPunchIn    = mode === "in";
-  const accentColor  = isPunchIn ? SUCCESS : DANGER;
-  const isMobile     = useMediaQuery("(max-width:600px)");
+  const isPunchIn   = mode === "in";
+  const accentColor = isPunchIn ? SUCCESS : DANGER;
+  const isMobile    = useMediaQuery("(max-width:600px)");
   return (
     <Dialog open={open} maxWidth="xs" fullWidth fullScreen={isMobile} TransitionComponent={isMobile ? Slide : Zoom} TransitionProps={isMobile ? { direction: "up" } : {}} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 4, overflow: "hidden" } }}>
       <Box sx={{ height: 5, background: `linear-gradient(90deg, ${PRIMARY}, ${accentColor})` }} />
@@ -225,11 +226,11 @@ const LocationPermissionDialog = ({ open, mode, onAllow, onDeny, requesting }) =
 
 // ─── PunchModal ───────────────────────────────────────────────────────────────
 const PunchModal = ({ open, mode, onClose, onConfirm, punchLoading, geo, timer }) => {
-  const theme      = useTheme();
-  const isMobile   = useMediaQuery(theme.breakpoints.down("sm"));
-  const isPunchIn  = mode === "in";
+  const theme       = useTheme();
+  const isMobile    = useMediaQuery(theme.breakpoints.down("sm"));
+  const isPunchIn   = mode === "in";
   const accentColor = isPunchIn ? SUCCESS : DANGER;
-  const [tick, setTick]               = useState(new Date());
+  const [tick, setTick]                     = useState(new Date());
   const [showFullAddress, setShowFullAddress] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -424,17 +425,71 @@ const LoadingSkeleton = () => (
   </Box>
 );
 
+// ─── getPeriodDates ───────────────────────────────────────────────────────────
+const getPeriodDates = (period) => {
+  const now = new Date();
+  if (period === "Today") {
+    const s = new Date(now); s.setHours(0, 0, 0, 0);
+    const e = new Date(now); e.setHours(23, 59, 59, 999);
+    return { startDate: s.toISOString().split("T")[0], endDate: e.toISOString().split("T")[0] };
+  }
+  if (period === "This Week") {
+    const day = now.getDay();
+    const s = new Date(now); s.setDate(now.getDate() - day); s.setHours(0, 0, 0, 0);
+    const e = new Date(now); e.setHours(23, 59, 59, 999);
+    return { startDate: s.toISOString().split("T")[0], endDate: e.toISOString().split("T")[0] };
+  }
+  if (period === "This Month") {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = new Date(now); e.setHours(23, 59, 59, 999);
+    return { startDate: s.toISOString().split("T")[0], endDate: e.toISOString().split("T")[0] };
+  }
+  return {};
+};
+
+
+
+// ─── Battery Helper ───────────────────────────────────────────────────────────
+
+// ─── Battery Helper ─────────────────────────────────────────────────────────
+// MUST return { percentage, isCharging } so callers can update state
+const saveBattery = async (userId, token) => {
+  try {
+    if (!("getBattery" in navigator)) return null;
+
+    const battery    = await navigator.getBattery();
+    const percentage = Math.round(battery.level * 100);
+    const isCharging = battery.charging;
+
+    console.log("💾 saveBattery — userId:", userId, "| %:", percentage, "| charging:", isCharging);
+
+    await axios.post(
+      `${API}/api/v1/battery/log`,
+      { userId, percentage, isCharging },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    console.log("✅ Battery saved successfully");
+    return { percentage, isCharging }; // ← CRITICAL: must return this
+  } catch (e) {
+    console.error("❌ Battery save error:", e.message);
+    return null;
+  }
+};
+
+
+
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Attendance() {
   const theme    = useTheme();
   const navigate = useNavigate();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
-  // ── Route params — userId present when admin views a team member ──────────
+const [batteryInfo, setBatteryInfo] = useState({ percentage: null, isCharging: false });
   const { userId: paramUserId } = useParams();
   const location                = useLocation();
-  const memberInfo              = location.state || {};   // { memberName, memberRole, memberPhone, memberEmail, fromTeam }
-  const isAdminView             = !!paramUserId;          // admin viewing someone else's attendance
+  const memberInfo              = location.state || {};
+  const isAdminView             = !!paramUserId;
 
   const { user, getUserRole } = useAuth();
   const {
@@ -444,13 +499,12 @@ export default function Attendance() {
   const geo   = useGeo();
   const timer = useWorkTimer();
 
-  const userRole     = getUserRole();
-  const isTeam       = userRole === "TEAM";
-  const canManage    = MANAGER_ROLES.includes(userRole);
-  const canDelete    = userRole === "Head_office";
+  const userRole      = getUserRole();
+  const isTeam        = userRole === "TEAM";
+  const canManage     = MANAGER_ROLES.includes(userRole);
+  const canDelete     = userRole === "Head_office";
   const isManagerRole = MANAGER_ROLES.includes(userRole);
 
-  // When admin views a member's page, hide punch controls
   const showPunchControls = !isAdminView && !isManagerRole;
 
   const [todayAtt, setTodayAtt] = useState(null);
@@ -469,22 +523,21 @@ export default function Attendance() {
   const hasPunchedIn  = !!todayAtt?.punchIn;
   const hasPunchedOut = !!todayAtt?.punchOut;
 
-  const [period,        setPeriod]        = useState("Today");
-  const [currentMonth,  setCurrentMonth]  = useState(new Date());
-  const [selectedDate,  setSelectedDate]  = useState(new Date());
-  const [filters,       setFilters]       = useState({ page: 1, limit: 10, status: "", search: "" });
-  const [drawerOpen,    setDrawerOpen]    = useState(false);
-  const [snackbar,      setSnackbar]      = useState({ open: false, message: "", severity: "success" });
-  const [selLog,        setSelLog]        = useState(null);
-  const [logOpen,       setLogOpen]       = useState(false);
-  const [deleteOpen,    setDeleteOpen]    = useState(false);
-  const [deleteTarget,  setDeleteTarget]  = useState(null);
-  const [navValue,      setNavValue]      = useState(0);
-  const [punchLoading,  setPunchLoading]  = useState(false);
-  const [punchState,    setPunchState]    = useState({ stage: null, mode: "in" });
+  const [period,       setPeriod]       = useState("This Month");
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [filters,      setFilters]      = useState({ page: 1, limit: 10, status: "", search: "" });
+  const [drawerOpen,   setDrawerOpen]   = useState(false);
+  const [snackbar,     setSnackbar]     = useState({ open: false, message: "", severity: "success" });
+  const [selLog,       setSelLog]       = useState(null);
+  const [logOpen,      setLogOpen]      = useState(false);
+  const [deleteOpen,   setDeleteOpen]   = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [navValue,     setNavValue]     = useState(0);
+  const [punchLoading, setPunchLoading] = useState(false);
+  const [punchState,   setPunchState]   = useState({ stage: null, mode: "in" });
   const [locationRequesting, setLocationRequesting] = useState(false);
 
-  // Row selection
   const [selectedIds, setSelectedIds] = useState(new Set());
   const selectedRecords = useMemo(() => (attendances || []).filter((a) => selectedIds.has(a._id || a.id)), [attendances, selectedIds]);
   const allPageIds      = useMemo(() => (attendances || []).map((a) => a._id || a.id), [attendances]);
@@ -501,18 +554,23 @@ export default function Attendance() {
     let n = 0;
     if (filters.search) n++;
     if (filters.status) n++;
-    if (period !== "Today") n++;
+    if (period !== "This Month") n++;
     return n;
   }, [filters, period]);
 
   const loadData = useCallback(async () => {
+    const dates = getPeriodDates(period);
     const q = {
-      page: filters.page, limit: filters.limit,
+      page:  filters.page,
+      limit: filters.limit,
       ...(filters.status && { status: filters.status }),
       ...(filters.search && { search: filters.search }),
-      // If admin is viewing a specific member, use paramUserId; otherwise own data
-      ...(paramUserId ? { userId: paramUserId } : isTeam && user?._id ? { userId: user._id } : {}),
-      ...(period !== "All" && { period: period.toLowerCase().replace(" ", "_") }),
+      ...(paramUserId
+        ? { userId: paramUserId }
+        : isTeam && user?._id
+        ? { userId: user._id }
+        : {}),
+      ...dates,
     };
     await fetchAttendances(q);
   }, [filters, period, isTeam, user, fetchAttendances, paramUserId]);
@@ -522,6 +580,60 @@ export default function Attendance() {
     if (error)   showSnack(error,   "error");
     if (success) showSnack(success, "success");
   }, [error, success, showSnack]);
+
+
+useEffect(() => {
+  if (!("getBattery" in navigator)) return;
+  let battery = null;
+
+  const update = () => {
+    if (!battery) return;
+    setBatteryInfo({
+      percentage: Math.round(battery.level * 100),
+      isCharging: battery.charging,
+    });
+  };
+
+  navigator.getBattery().then((b) => {
+    battery = b;
+    update(); // set immediately on mount
+    b.addEventListener("levelchange",    update);
+    b.addEventListener("chargingchange", update);
+  });
+
+  return () => {
+    if (battery) {
+      battery.removeEventListener("levelchange",    update);
+      battery.removeEventListener("chargingchange", update);
+    }
+  };
+}, []);
+
+
+
+
+  // ── Periodic battery sync while on duty (every 5 min) ────────────────────
+useEffect(() => {
+  if (!user?._id || !hasPunchedIn || hasPunchedOut) return;
+  if (!("getBattery" in navigator)) return;
+
+  const token = localStorage.getItem("token");
+
+  // Save immediately on mount (covers page refresh while on duty)
+  saveBattery(user._id, token).then((res) => {
+    if (res) setBatteryInfo(res);
+  });
+
+  const interval = setInterval(async () => {
+    const res = await saveBattery(user._id, token);
+    if (res) setBatteryInfo(res);
+  }, 5 * 60 * 1000);
+
+  return () => clearInterval(interval);
+}, [hasPunchedIn, hasPunchedOut, user?._id]);
+
+
+
 
   const openPunchModal = useCallback((mode) => {
     if (mode === "in" && hasPunchedIn) {
@@ -540,24 +652,51 @@ export default function Attendance() {
 
   const handleDenyLocation = useCallback(() => { setPunchState({ stage: null, mode: "in" }); geo.reset(); }, [geo]);
 
+  // ── Punch confirm — clean single version ─────────────────────────────────
   const handlePunchConfirm = useCallback(async () => {
     const mode = punchState.mode;
     if (mode === "in"  && hasPunchedIn)  { showSnack("Already punched in.",  "warning"); setPunchState({ stage: null, mode: "in" }); return; }
     if (mode === "out" && hasPunchedOut) { showSnack("Already punched out.", "info");    setPunchState({ stage: null, mode: "in" }); return; }
     if (!geo.latitude || !geo.longitude) { showSnack("Could not get valid location. Please retry.", "error"); return; }
+
     setPunchLoading(true);
     try {
       const fn     = mode === "in" ? punchIn : punchOut;
-      const result = await fn({ latitude: parseFloat(geo.latitude.toFixed(6)), longitude: parseFloat(geo.longitude.toFixed(6)), accuracy: geo.accuracy, address: geo.address });
+      const result = await fn({
+        latitude:  parseFloat(geo.latitude.toFixed(6)),
+        longitude: parseFloat(geo.longitude.toFixed(6)),
+        accuracy:  geo.accuracy,
+        address:   geo.address,
+      });
+
       if (result?.success) {
         showSnack(`Punch ${mode} successful!`);
         setPunchState({ stage: null, mode: "in" });
         await loadData();
-        if (mode === "in") timer.start(new Date());
-      } else { showSnack(result?.error || `Punch ${mode} failed`, "error"); }
-    } catch (e) { showSnack(e.message || "Punch failed", "error"); }
-    finally { setPunchLoading(false); }
-  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, timer, showSnack]);
+
+        if (mode === "in") {
+          timer.start(new Date());
+
+          // // ── Save battery immediately on punch-in ──────────────────
+          const token = localStorage.getItem("token");
+          await saveBattery(user._id, token);
+
+          // ── Live listeners: update battery on level/charging change ─
+          if ("getBattery" in navigator) {
+            const battery = await navigator.getBattery();
+            battery.addEventListener("levelchange",  () => saveBattery(user._id, token));
+            battery.addEventListener("chargingchange", () => saveBattery(user._id, token));
+          }
+        }
+      } else {
+        showSnack(result?.error || `Punch ${mode} failed`, "error");
+      }
+    } catch (e) {
+      showSnack(e.message || "Punch failed", "error");
+    } finally {
+      setPunchLoading(false);
+    }
+  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, timer, showSnack, user]);
 
   const handleCloseConfirm = useCallback(() => { if (!punchLoading) { setPunchState({ stage: null, mode: "in" }); geo.reset(); } }, [punchLoading, geo]);
 
@@ -575,12 +714,12 @@ export default function Attendance() {
   }, [currentMonth, attendances]);
 
   const DOW = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-  const handleDateSelect  = useCallback((d) => {
+  const handleDateSelect    = useCallback((d) => {
     setSelectedDate(d);
     const att = attendances?.find((a) => new Date(a.date).toDateString() === d.toDateString());
     if (att) { setSelLog(att); setLogOpen(true); }
   }, [attendances]);
-  const handleDeleteOpen  = useCallback((att) => { setDeleteTarget(att); setDeleteOpen(true); }, []);
+  const handleDeleteOpen    = useCallback((att) => { setDeleteTarget(att); setDeleteOpen(true); }, []);
   const handleDeleteConfirm = useCallback(async () => {
     const id = deleteTarget?._id || deleteTarget?.id;
     if (!id) { setDeleteOpen(false); return; }
@@ -588,7 +727,7 @@ export default function Attendance() {
     if (res?.success) await loadData();
     setDeleteOpen(false); setDeleteTarget(null);
   }, [deleteTarget, deleteAttendance, loadData]);
-  const clearFilters = useCallback(() => { setFilters({ page: 1, limit: 10, status: "", search: "" }); setPeriod("Today"); }, []);
+  const clearFilters = useCallback(() => { setFilters({ page: 1, limit: 10, status: "", search: "" }); setPeriod("This Month"); }, []);
   const setFilter    = (key) => (val) => setFilters((prev) => ({ ...prev, [key]: val, page: 1 }));
   const fmtDate      = (ts) => !ts ? "—" : new Date(ts).toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
   const fmtTime      = (ts) => !ts ? "—" : new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -597,7 +736,6 @@ export default function Attendance() {
 
   return (
     <Box ref={containerRef} sx={{ p: { xs: 1.5, sm: 2, md: 3 }, minHeight: "100vh", pb: { xs: 9, sm: 3 }, bgcolor: "#f4f6fb" }}>
-      {/* Punch dialogs — only shown when not admin-viewing */}
       {showPunchControls && (
         <>
           <LocationPermissionDialog open={punchState.stage === "permission"} mode={punchState.mode} onAllow={handleAllowLocation} onDeny={handleDenyLocation} requesting={locationRequesting} />
@@ -613,13 +751,11 @@ export default function Attendance() {
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
           <Stack direction="row" spacing={2} alignItems="center">
-            {/* Back button — shown when admin navigated from team page */}
             {isAdminView && (
               <IconButton onClick={() => navigate(-1)} sx={{ bgcolor: "rgba(255,255,255,0.15)", color: "#fff", "&:hover": { bgcolor: "rgba(255,255,255,0.25)" }, flexShrink: 0 }}>
                 <ArrowBack />
               </IconButton>
             )}
-
             <Box>
               {isAdminView && memberInfo.fromTeam && (
                 <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.5 }}>
@@ -628,9 +764,7 @@ export default function Attendance() {
                   <Typography variant="caption" sx={{ opacity: 0.85, fontWeight: 600 }}>{memberInfo.memberName}</Typography>
                 </Stack>
               )}
-
               {isAdminView ? (
-                /* Admin viewing a team member — show their info */
                 <Stack direction="row" spacing={1.5} alignItems="center">
                   <Avatar sx={{ bgcolor: "rgba(255,255,255,0.2)", border: "2px solid rgba(255,255,255,0.4)", width: isMobile ? 38 : 46, height: isMobile ? 38 : 46, fontWeight: 800, fontSize: isMobile ? "0.95rem" : "1.1rem" }}>
                     {memberInfo.memberName?.charAt(0) || "?"}
@@ -640,9 +774,7 @@ export default function Attendance() {
                       {memberInfo.memberName || "Team Member"}
                     </Typography>
                     <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-                      {memberInfo.memberRole && (
-                        <Chip size="small" label={memberInfo.memberRole} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, height: 20, fontSize: "0.68rem" }} />
-                      )}
+                      {memberInfo.memberRole && <Chip size="small" label={memberInfo.memberRole} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, height: 20, fontSize: "0.68rem" }} />}
                       {memberInfo.memberPhone && (
                         <Stack direction="row" spacing={0.4} alignItems="center">
                           <Phone sx={{ fontSize: 12, opacity: 0.7 }} />
@@ -659,7 +791,6 @@ export default function Attendance() {
                   </Box>
                 </Stack>
               ) : (
-                /* Normal user / manager's own view */
                 <>
                   <Typography variant={isMobile ? "h6" : "h5"} fontWeight={800}>Attendance Dashboard</Typography>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
@@ -673,46 +804,22 @@ export default function Attendance() {
             </Box>
           </Stack>
 
-          {/* Right actions */}
           <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
             {showPunchControls && (
               <>
-                {!hasPunchedIn && (
-                  <Button variant="contained" startIcon={<Login />} onClick={() => openPunchModal("in")} size={isMobile ? "small" : "medium"} sx={{ bgcolor: SUCCESS, fontWeight: 700, borderRadius: 2.5, "&:hover": { bgcolor: "#16a34a" }, boxShadow: `0 4px 12px ${alpha(SUCCESS, 0.4)}` }}>Punch In</Button>
-                )}
-                {hasPunchedIn && !hasPunchedOut && (
-                  <Button variant="contained" startIcon={<Logout />} onClick={() => openPunchModal("out")} size={isMobile ? "small" : "medium"} sx={{ bgcolor: DANGER, fontWeight: 700, borderRadius: 2.5, "&:hover": { bgcolor: "#dc2626" }, boxShadow: `0 4px 12px ${alpha(DANGER, 0.4)}` }}>Punch Out</Button>
-                )}
-                {hasPunchedIn && hasPunchedOut && (
-                  <Tooltip title="Attendance complete for today" arrow>
-                    <span>
-                      <Button variant="contained" startIcon={<CheckCircle />} disabled size={isMobile ? "small" : "medium"} sx={{ fontWeight: 700, borderRadius: 2.5, bgcolor: "rgba(255,255,255,.15) !important", color: "rgba(255,255,255,.6) !important" }}>Day Complete</Button>
-                    </span>
-                  </Tooltip>
-                )}
+                {!hasPunchedIn && <Button variant="contained" startIcon={<Login />} onClick={() => openPunchModal("in")} size={isMobile ? "small" : "medium"} sx={{ bgcolor: SUCCESS, fontWeight: 700, borderRadius: 2.5, "&:hover": { bgcolor: "#16a34a" }, boxShadow: `0 4px 12px ${alpha(SUCCESS, 0.4)}` }}>Punch In</Button>}
+                {hasPunchedIn && !hasPunchedOut && <Button variant="contained" startIcon={<Logout />} onClick={() => openPunchModal("out")} size={isMobile ? "small" : "medium"} sx={{ bgcolor: DANGER, fontWeight: 700, borderRadius: 2.5, "&:hover": { bgcolor: "#dc2626" }, boxShadow: `0 4px 12px ${alpha(DANGER, 0.4)}` }}>Punch Out</Button>}
+                {hasPunchedIn && hasPunchedOut && <Tooltip title="Attendance complete for today" arrow><span><Button variant="contained" startIcon={<CheckCircle />} disabled size={isMobile ? "small" : "medium"} sx={{ fontWeight: 700, borderRadius: 2.5, bgcolor: "rgba(255,255,255,.15) !important", color: "rgba(255,255,255,.6) !important" }}>Day Complete</Button></span></Tooltip>}
               </>
             )}
-            {!isMobile && attendances?.length > 0 && (
-              <BulkExportMenu selectedRecords={selectedRecords} allRecords={attendances || []} onSnack={showSnack} />
-            )}
+            {!isMobile && attendances?.length > 0 && <BulkExportMenu selectedRecords={selectedRecords} allRecords={attendances || []} onSnack={showSnack} />}
             <Button variant="contained" startIcon={<Refresh />} onClick={loadData} disabled={loading} size={isMobile ? "small" : "medium"} sx={{ bgcolor: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 2.5, "&:hover": { bgcolor: "rgba(255,255,255,.25)" } }}>Refresh</Button>
-            {isMobile && (
-              <Button variant="contained" startIcon={<FilterAlt />} onClick={() => setDrawerOpen(true)} size="small" sx={{ bgcolor: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 2.5, "&:hover": { bgcolor: "rgba(255,255,255,.25)" }, position: "relative" }}>
-                Filter
-                {activeFilterCount > 0 && <Badge badgeContent={activeFilterCount} color="error" sx={{ position: "absolute", top: -8, right: -8 }} />}
-              </Button>
-            )}
+            {isMobile && <Button variant="contained" startIcon={<FilterAlt />} onClick={() => setDrawerOpen(true)} size="small" sx={{ bgcolor: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 2.5, "&:hover": { bgcolor: "rgba(255,255,255,.25)" }, position: "relative" }}>Filter{activeFilterCount > 0 && <Badge badgeContent={activeFilterCount} color="error" sx={{ position: "absolute", top: -8, right: -8 }} />}</Button>}
           </Stack>
         </Stack>
 
-        {/* Live timer (own view only) */}
-        {showPunchControls && hasPunchedIn && !hasPunchedOut && (
-          <Box sx={{ mt: 2 }}>
-            <LiveTimer startTime={todayAtt?.punchIn?.time} isRunning={true} />
-          </Box>
-        )}
+        {showPunchControls && hasPunchedIn && !hasPunchedOut && <Box sx={{ mt: 2 }}><LiveTimer startTime={todayAtt?.punchIn?.time} isRunning={true} /></Box>}
 
-        {/* Today's punch summary strip */}
         {!isAdminView && !isManagerRole && (hasPunchedIn || hasPunchedOut) && (
           <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid rgba(255,255,255,.15)" }}>
             <Stack direction="row" spacing={3} flexWrap="wrap">
@@ -731,18 +838,11 @@ export default function Attendance() {
           </Box>
         )}
 
-        {/* Admin view summary strip */}
         {isAdminView && pagination?.totalItems > 0 && (
           <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid rgba(255,255,255,.15)" }}>
             <Stack direction="row" spacing={3} flexWrap="wrap">
-              <Box>
-                <Typography variant="caption" sx={{ opacity: 0.7, display: "block" }}>Total Records</Typography>
-                <Typography variant="body2" fontWeight={700}>{pagination.totalItems}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" sx={{ opacity: 0.7, display: "block" }}>Period</Typography>
-                <Typography variant="body2" fontWeight={700}>{period}</Typography>
-              </Box>
+              <Box><Typography variant="caption" sx={{ opacity: 0.7, display: "block" }}>Total Records</Typography><Typography variant="body2" fontWeight={700}>{pagination.totalItems}</Typography></Box>
+              <Box><Typography variant="caption" sx={{ opacity: 0.7, display: "block" }}>Period</Typography><Typography variant="body2" fontWeight={700}>{period}</Typography></Box>
             </Stack>
           </Box>
         )}
@@ -751,18 +851,15 @@ export default function Attendance() {
       {/* ── Stats ───────────────────────────────────────────────────────── */}
       <Grid container spacing={isMobile ? 1.5 : 2} sx={{ mb: 3 }}>
         {[
-          { icon: CalendarToday, label: "Total Days",   value: pagination?.totalItems || 0,                        color: PRIMARY,  sub: "All records",   index: 0 },
-          { icon: AccessTime,    label: "Work Hours",   value: `${(summary?.totalWorkHours || 0).toFixed(1)}h`,    color: "#3b82f6", sub: "Total logged",  index: 1 },
-          { icon: CheckCircle,   label: "Present",      value: summary?.presentCount || 0,                         color: SUCCESS,  sub: "On time",       index: 2 },
-          { icon: Warning,       label: "Late / Absent",value: `${summary?.lateCount || 0}/${summary?.absentCount || 0}`, color: WARNING, sub: "Needs review", index: 3 },
+          { icon: CalendarToday, label: "Total Days",    value: pagination?.totalItems || 0,                              color: PRIMARY,   sub: "All records",  index: 0 },
+          { icon: AccessTime,    label: "Work Hours",    value: `${(summary?.totalWorkHours || 0).toFixed(1)}h`,          color: "#3b82f6", sub: "Total logged",  index: 1 },
+          { icon: CheckCircle,   label: "Present",       value: summary?.presentCount || 0,                               color: SUCCESS,   sub: "On time",      index: 2 },
+          { icon: Warning,       label: "Late / Absent", value: `${summary?.lateCount || 0}/${summary?.absentCount || 0}`,color: WARNING,   sub: "Needs review", index: 3 },
         ].map((props) => (
-          <Grid item xs={6} sm={3} key={props.label}>
-            <StatCard {...props} loading={loading} />
-          </Grid>
+          <Grid item xs={6} sm={3} key={props.label}><StatCard {...props} loading={loading} /></Grid>
         ))}
       </Grid>
 
-      {/* Mobile search */}
       {isMobile && (
         <Box sx={{ mb: 2 }}>
           <TextField fullWidth size="small" placeholder="Search records…" value={filters.search} onChange={(e) => setFilter("search")(e.target.value)}
@@ -771,7 +868,6 @@ export default function Attendance() {
         </Box>
       )}
 
-      {/* Desktop filters */}
       {!isMobile && (
         <Paper elevation={0} sx={{ p: 2.5, mb: 3, borderRadius: 3, border: `1px solid ${alpha(PRIMARY, 0.08)}` }}>
           <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
@@ -795,9 +891,9 @@ export default function Attendance() {
           </Stack>
           {activeFilterCount > 0 && (
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 1.5 }}>
-              {filters.search  && <Chip size="small" label={`Search: "${filters.search}"`}  onDelete={() => setFilter("search")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
-              {filters.status  && <Chip size="small" label={`Status: ${filters.status}`}    onDelete={() => setFilter("status")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
-              {period !== "Today" && <Chip size="small" label={`Period: ${period}`}         onDelete={() => setPeriod("Today")}       sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
+              {filters.search      && <Chip size="small" label={`Search: "${filters.search}"`} onDelete={() => setFilter("search")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
+              {filters.status      && <Chip size="small" label={`Status: ${filters.status}`}   onDelete={() => setFilter("status")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
+              {period !== "This Month" && <Chip size="small" label={`Period: ${period}`}        onDelete={() => setPeriod("This Month")} sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
             </Stack>
           )}
         </Paper>
@@ -909,7 +1005,6 @@ export default function Attendance() {
                     </TableContainer>
                   )}
 
-                  {/* Selection action bar */}
                   {someSelected && !isMobile && (
                     <Fade in>
                       <Paper elevation={0} sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: alpha(PRIMARY, 0.04), border: `1px solid ${alpha(PRIMARY, 0.12)}` }}>
@@ -919,8 +1014,8 @@ export default function Attendance() {
                             <Button size="small" startIcon={<Deselect sx={{ fontSize: 14 }} />} onClick={() => setSelectedIds(new Set())} sx={{ color: "text.secondary", fontSize: "0.75rem" }}>Clear</Button>
                           </Stack>
                           <Stack direction="row" spacing={1}>
-                            <Button size="small" variant="outlined" startIcon={<FileDownload sx={{ fontSize: 14 }} />} onClick={() => { try { downloadFile(generateCSV(selectedRecords), `attendance_selected_${format(new Date(), "yyyyMMdd_HHmmss")}.csv`, "text/csv"); showSnack(`Exported ${selectedIds.size} records as CSV`); } catch { showSnack("Export failed", "error"); } }} sx={{ borderRadius: 2, borderColor: alpha(SUCCESS, 0.5), color: SUCCESS, fontSize: "0.75rem" }}>CSV</Button>
-                            <Button size="small" variant="outlined" startIcon={<FileDownload sx={{ fontSize: 14 }} />} onClick={() => { try { downloadFile(generateJSON(selectedRecords), `attendance_selected_${format(new Date(), "yyyyMMdd_HHmmss")}.json`, "application/json"); showSnack(`Exported ${selectedIds.size} records as JSON`); } catch { showSnack("Export failed", "error"); } }} sx={{ borderRadius: 2, borderColor: alpha(PRIMARY, 0.5), color: PRIMARY, fontSize: "0.75rem" }}>JSON</Button>
+                            <Button size="small" variant="outlined" startIcon={<FileDownload sx={{ fontSize: 14 }} />} onClick={() => { try { downloadFile(generateCSV(selectedRecords), `att_${format(new Date(), "yyyyMMdd_HHmmss")}.csv`, "text/csv"); showSnack(`Exported ${selectedIds.size} records as CSV`); } catch { showSnack("Export failed", "error"); } }} sx={{ borderRadius: 2, borderColor: alpha(SUCCESS, 0.5), color: SUCCESS, fontSize: "0.75rem" }}>CSV</Button>
+                            <Button size="small" variant="outlined" startIcon={<FileDownload sx={{ fontSize: 14 }} />} onClick={() => { try { downloadFile(generateJSON(selectedRecords), `att_${format(new Date(), "yyyyMMdd_HHmmss")}.json`, "application/json"); showSnack(`Exported ${selectedIds.size} records as JSON`); } catch { showSnack("Export failed", "error"); } }} sx={{ borderRadius: 2, borderColor: alpha(PRIMARY, 0.5), color: PRIMARY, fontSize: "0.75rem" }}>JSON</Button>
                           </Stack>
                         </Stack>
                       </Paper>
@@ -977,7 +1072,6 @@ export default function Attendance() {
         </Box>
       </SwipeableDrawer>
 
-      {/* Mobile FAB */}
       {isMobile && (
         <Zoom in>
           <Fab size="medium" onClick={() => setDrawerOpen(true)} sx={{ position: "fixed", bottom: 80, right: 16, zIndex: 1000, bgcolor: PRIMARY, color: "#fff", boxShadow: `0 4px 16px ${alpha(PRIMARY, 0.38)}`, "&:hover": { bgcolor: SECONDARY } }}>
@@ -986,7 +1080,6 @@ export default function Attendance() {
         </Zoom>
       )}
 
-      {/* Bottom Nav */}
       {isMobile && (
         <Paper sx={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 1000, borderRadius: 0, borderTop: `1px solid ${alpha(PRIMARY, 0.1)}` }} elevation={3}>
           <BottomNavigation showLabels value={navValue}
@@ -1003,10 +1096,8 @@ export default function Attendance() {
         </Paper>
       )}
 
-      {/* Details */}
       <AttendanceDetails open={logOpen} onClose={() => setLogOpen(false)} attendance={selLog} canEdit={canManage} canDelete={canDelete} onDelete={handleDeleteOpen} />
 
-      {/* Delete Dialog */}
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, overflow: "hidden" } }}>
         <Box sx={{ height: 5, bgcolor: DANGER }} />
         <DialogTitle sx={{ pt: 2.5, pb: 1 }}><Typography variant="h6" fontWeight={700}>Confirm Delete</Typography></DialogTitle>
@@ -1024,7 +1115,6 @@ export default function Attendance() {
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
       <Snackbar open={snackbar.open} autoHideDuration={3500} onClose={() => { setSnackbar((s) => ({ ...s, open: false })); clearMessages(); }} anchorOrigin={{ vertical: isMobile ? "top" : "bottom", horizontal: isMobile ? "center" : "right" }}>
         <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2, color: "#fff", fontWeight: 600 }}>{snackbar.message}</Alert>
       </Snackbar>
