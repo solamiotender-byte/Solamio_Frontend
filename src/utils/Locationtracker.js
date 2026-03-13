@@ -1,19 +1,21 @@
-// locationTracker.js
+// utils/Locationtracker.js
 // Single source of truth for GPS tracking.
 // Call startTracking() on punch-in, stopTracking() on punch-out.
 
-const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
+const API =
+  import.meta.env.VITE_API_URL ||
+  "https://solar-backend-4bsb.onrender.com";
 
-let watchId = null;
-let buffer = [];       // unsent points waiting for next flush
-let allPoints = [];    // every point collected this session
-let flushTimer = null;
-let isTracking = false;
+let watchId      = null;
+let buffer       = [];      // unsent points waiting for next flush
+let allPoints    = [];      // every point collected this session
+let flushTimer   = null;
+let isTracking   = false;
 let onPointCallback = null; // optional callback fired on every new point
 
 /**
  * Start GPS tracking after punch-in.
- * @param {Function} onPoint - optional callback(point) fired on every new GPS fix
+ * @param {Function} onPoint - optional callback([...allPoints]) fired on every new GPS fix
  */
 export function startTracking(onPoint = null) {
   if (isTracking) return;
@@ -22,31 +24,28 @@ export function startTracking(onPoint = null) {
     return;
   }
 
-  isTracking = true;
-  buffer = [];
-  allPoints = [];
+  isTracking      = true;
+  buffer          = [];
+  allPoints       = [];
   onPointCallback = onPoint;
-
-  const token = localStorage.getItem("token");
 
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
       const pt = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        speed: pos.coords.speed ?? 0,
+        lat:      pos.coords.latitude,
+        lng:      pos.coords.longitude,
+        speed:    pos.coords.speed    ?? 0,
         accuracy: pos.coords.accuracy ?? 0,
-        time: new Date().toISOString(),
+        // ✅ Use real device timestamp, not Date.now()
+        time:     new Date(pos.timestamp).toISOString(),
       };
 
-      // Skip duplicate points (moved less than ~10m)
+      // ✅ FIX: previous threshold (~11 m) was too tight for slow walkers.
+      //         Filter by time instead — skip if last point was < 15 seconds ago.
       const last = allPoints[allPoints.length - 1];
-      if (
-        last &&
-        Math.abs(last.lat - pt.lat) < 0.0001 &&
-        Math.abs(last.lng - pt.lng) < 0.0001
-      ) {
-        return;
+      if (last) {
+        const msSinceLast = new Date(pt.time) - new Date(last.time);
+        if (msSinceLast < 15_000) return;
       }
 
       buffer.push(pt);
@@ -61,13 +60,14 @@ export function startTracking(onPoint = null) {
     },
     {
       enableHighAccuracy: true,
-      maximumAge: 10000,
-      timeout: 15000,
+      maximumAge:         10_000,
+      timeout:            15_000,
     }
   );
 
-  // Flush buffer to backend every 30 seconds
-  flushTimer = setInterval(() => flushBuffer(token), 30000);
+  // ✅ FIX: do NOT capture token here — it may be refreshed later.
+  //         flushBuffer() reads token fresh on every call.
+  flushTimer = setInterval(() => flushBuffer(), 30_000);
 
   console.log("📍 Location tracking started");
 }
@@ -78,8 +78,6 @@ export function startTracking(onPoint = null) {
  */
 export function stopTracking() {
   if (!isTracking) return;
-
-  const token = localStorage.getItem("token");
 
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId);
@@ -92,9 +90,9 @@ export function stopTracking() {
   }
 
   // Final flush — make sure last points are sent
-  flushBuffer(token);
+  flushBuffer();
 
-  isTracking = false;
+  isTracking      = false;
   onPointCallback = null;
 
   console.log("📍 Location tracking stopped");
@@ -108,11 +106,12 @@ export function getTrackPoints() {
 }
 
 /**
- * Clears all collected points (call after punch-out if starting fresh next day).
+ * Clears all collected points.
+ * Call after punch-out when starting fresh next day.
  */
 export function clearTrackPoints() {
   allPoints = [];
-  buffer = [];
+  buffer    = [];
 }
 
 /**
@@ -125,19 +124,26 @@ export function isCurrentlyTracking() {
 /**
  * Send buffered points to backend in bulk.
  * Re-queues on network failure (offline support).
+ *
+ * ✅ FIX: reads token fresh each call — no stale closure issue.
  */
-async function flushBuffer(token) {
+async function flushBuffer() {
   if (!buffer.length) return;
 
+  // ✅ Always read the latest token
+  const token = localStorage.getItem("token")
+    || localStorage.getItem("authToken")
+    || localStorage.getItem("accessToken");
+
   const points = [...buffer];
-  buffer = []; // clear before sending so new points go into fresh buffer
+  buffer = []; // clear before await so new points go into fresh buffer
 
   try {
     const res = await fetch(`${API}/api/v1/location/bulk`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ points }),
     });

@@ -1,16 +1,19 @@
 // hooks/useGeo.js
 import { useState, useCallback, useRef } from "react";
 
-const GOOGLE_API_KEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
+// ✅ FIX: API key must never be hardcoded in frontend source —
+//         it would be visible to anyone who inspects the bundle.
+//         Store it in your .env file as VITE_GOOGLE_MAPS_API_KEY.
+const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
 export const useGeo = () => {
   const [state, setState] = useState({
-    latitude: null,
+    latitude:  null,
     longitude: null,
-    accuracy: null,
-    address: null,
-    error: null,
-    loading: false,
+    accuracy:  null,
+    address:   null,
+    error:     null,
+    loading:   false,
   });
 
   // Keep a ref to avoid stale closures in async callbacks
@@ -21,6 +24,11 @@ export const useGeo = () => {
      GOOGLE REVERSE GEOCODING
   ============================== */
   const fetchAddress = useCallback(async (latitude, longitude) => {
+    if (!GOOGLE_API_KEY) {
+      console.warn("useGeo: VITE_GOOGLE_MAPS_API_KEY is not set");
+      return null;
+    }
+
     try {
       const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_API_KEY}`;
       const response = await fetch(url);
@@ -29,22 +37,22 @@ export const useGeo = () => {
       const data = await response.json();
       if (!data.results?.length) return null;
 
-      const result = data.results[0];
+      const result     = data.results[0];
       const components = result.address_components || [];
 
       const getComp = (type) =>
         components.find((c) => c.types.includes(type))?.long_name || "";
 
       return {
-        full: result.formatted_address,
-        short: result.formatted_address.split(",")[0].trim(),
-        road: getComp("route"),
+        full:        result.formatted_address,
+        short:       result.formatted_address.split(",")[0].trim(),
+        road:        getComp("route"),
         houseNumber: getComp("street_number"),
         city:
           getComp("locality") || getComp("administrative_area_level_2"),
-        state: getComp("administrative_area_level_1"),
-        country: getComp("country"),
-        postcode: getComp("postal_code"),
+        state:       getComp("administrative_area_level_1"),
+        country:     getComp("country"),
+        postcode:    getComp("postal_code"),
       };
     } catch (err) {
       console.error("Google reverse geocode error:", err);
@@ -73,7 +81,7 @@ export const useGeo = () => {
       if (!navigator.geolocation) {
         setState((s) => ({
           ...s,
-          error: "Geolocation is not supported by your browser",
+          error:   "Geolocation is not supported by your browser",
           loading: false,
         }));
         return null;
@@ -85,9 +93,9 @@ export const useGeo = () => {
         navigator.geolocation.getCurrentPosition(
           async (pos) => {
             const coords = {
-              latitude: pos.coords.latitude,
+              latitude:  pos.coords.latitude,
               longitude: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
+              accuracy:  pos.coords.accuracy,
             };
 
             let address = null;
@@ -95,13 +103,7 @@ export const useGeo = () => {
               address = await fetchAddress(coords.latitude, coords.longitude);
             }
 
-            const newState = {
-              ...coords,
-              address,
-              loading: false,
-              error: null,
-            };
-
+            const newState = { ...coords, address, loading: false, error: null };
             setState(newState);
             resolve(newState);
           },
@@ -118,8 +120,8 @@ export const useGeo = () => {
           },
           {
             enableHighAccuracy: true,
-            timeout: 20000,
-            maximumAge: 0,
+            timeout:            20_000,
+            maximumAge:         0,
           }
         );
       });
@@ -132,19 +134,14 @@ export const useGeo = () => {
   ============================== */
   const reset = useCallback(() => {
     setState({
-      latitude: null,
+      latitude:  null,
       longitude: null,
-      accuracy: null,
-      address: null,
-      error: null,
-      loading: false,
+      accuracy:  null,
+      address:   null,
+      error:     null,
+      loading:   false,
     });
   }, []);
 
-  return {
-    ...state,
-    fetchLocation,
-    refreshAddress,
-    reset,
-  };
+  return { ...state, fetchLocation, refreshAddress, reset };
 };
