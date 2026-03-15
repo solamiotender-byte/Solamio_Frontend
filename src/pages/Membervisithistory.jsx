@@ -8,7 +8,7 @@ import {
 import {
   LocationOn, Refresh, MyLocation, FilterList, Add,
   CheckCircle, Cancel, AccessTime, Route, Timer, Close,
-  Layers, Map, Satellite, Fullscreen, FullscreenExit, ExpandMore,
+  Fullscreen, FullscreenExit,
   Store, Login, Logout, PhotoCamera, VerifiedUser,
   BatteryChargingFull, BatteryAlert, Battery20, Battery50, Battery80,
   CalendarToday,
@@ -16,18 +16,18 @@ import {
 import { useLocation, useParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
-  startTracking, stopTracking, getTrackPoints,
-  clearTrackPoints, isCurrentlyTracking,
-} from "../utils/Locationtracker";
+  stopTracking, 
+   isCurrentlyTracking,
+} from "../utils/Locationtracker.js";
+
+// ✅ Replaced Google Maps TrackMap with Leaflet LiveTrackingMap
+import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
-  : "http://localhost:9001/api/v1";
-const API = import.meta.env.VITE_API_URL || "http://localhost:9001";
-const GMAPS_KEY =
-  import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||
-  import.meta.env.REACT_APP_GOOGLE_MAPS_API_KEY || "";
+  : "https://solar-backend-4bsb.onrender.com/api/v1";
+const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";
@@ -90,22 +90,6 @@ const getDateRange = (r) => {
   return {};
 };
 
-// ─── Google Maps ──────────────────────────────────────────────────────────────
-let gmapsPromise = null;
-const loadGMaps = () => {
-  if (window.google?.maps) return Promise.resolve();
-  if (gmapsPromise) return gmapsPromise;
-  gmapsPromise = new Promise((res, rej) => {
-    const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}`;
-    s.async = true;
-    s.onload = res;
-    s.onerror = rej;
-    document.head.appendChild(s);
-  });
-  return gmapsPromise;
-};
-
 // ─── Battery helpers ──────────────────────────────────────────────────────────
 const getBatteryStyle = (pct) => {
   if (pct == null) return null;
@@ -142,223 +126,6 @@ const BatteryIndicator = ({ percentage, isCharging }) => {
         {percentage}%
       </Typography>
       {isCharging && <Typography sx={{ fontSize: "0.7rem", color: "#d97706" }}>⚡</Typography>}
-    </Box>
-  );
-};
-
-// ─── Track Map ────────────────────────────────────────────────────────────────
-const TrackMap = ({
-  punchInLocation, visits, mapStyle, loading, totalDistance,
-  isPunchedIn, hasPunchedOut, trackPoints, fullscreen,
-  onToggleFullscreen, onMapStyleChange,
-}) => {
-  const mapRef  = useRef(null), gMapRef = useRef(null),
-    polyRef     = useRef(null), markersRef = useRef([]),
-    pulseRef    = useRef(null);
-  const [ready, setReady]         = useState(false);
-  const [styleMenu, setStyleMenu] = useState(false);
-
-  useEffect(() => { loadGMaps().then(() => setReady(true)).catch(console.error); }, []);
-
-  useEffect(() => {
-    if (!ready || !mapRef.current || gMapRef.current) return;
-    gMapRef.current = new window.google.maps.Map(mapRef.current, {
-      center: punchInLocation?.lat
-        ? { lat: punchInLocation.lat, lng: punchInLocation.lng }
-        : { lat: 20.5937, lng: 78.9629 },
-      zoom:         punchInLocation?.lat ? 15 : 5,
-      mapTypeId:    mapStyle === "satellite" ? "satellite" : mapStyle === "terrain" ? "terrain" : "roadmap",
-      disableDefaultUI: false, zoomControl: true,
-      streetViewControl: false, mapTypeControl: false, fullscreenControl: false,
-      styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
-    });
-  }, [ready]);
-
-  useEffect(() => {
-    if (gMapRef.current)
-      gMapRef.current.setMapTypeId(
-        mapStyle === "satellite" ? "satellite" : mapStyle === "terrain" ? "terrain" : "roadmap"
-      );
-  }, [mapStyle]);
-
-  useEffect(() => {
-    if (!gMapRef.current || !ready) return;
-    const map = gMapRef.current, G = window.google.maps;
-
-    markersRef.current.forEach(m => m.setMap(null)); markersRef.current = [];
-    if (polyRef.current)  { polyRef.current.setMap(null);  polyRef.current  = null; }
-    if (pulseRef.current) { pulseRef.current.setMap(null); pulseRef.current = null; }
-
-    if (trackPoints.length >= 2)
-      polyRef.current = new G.Polyline({
-        path:          trackPoints.map(p => ({ lat: p.lat, lng: p.lng })),
-        geodesic:      true,
-        strokeColor:   "#ef4444",
-        strokeOpacity: 0.85,
-        strokeWeight:  4,
-        map,
-        icons: [{
-          icon: { path: G.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3,
-            strokeColor: "#ef4444", fillColor: "#ef4444", fillOpacity: 1 },
-          offset: "50%", repeat: "120px",
-        }],
-      });
-
-    if (punchInLocation?.lat)
-      markersRef.current.push(new G.Marker({
-        position: { lat: punchInLocation.lat, lng: punchInLocation.lng },
-        map, title: "Start", zIndex: 10,
-        icon: { path: G.SymbolPath.CIRCLE, scale: 10, fillColor: SUCCESS,
-          fillOpacity: 1, strokeColor: "#fff", strokeWeight: 3 },
-      }));
-
-    visits
-      .filter(v => v.latitude && v.longitude)
-      .forEach((v, i) =>
-        markersRef.current.push(new G.Marker({
-          position: { lat: v.latitude, lng: v.longitude },
-          map, title: v.locationName || `Visit ${i + 1}`, zIndex: 8,
-          label: { text: String(i + 1), color: "#fff", fontSize: "11px", fontWeight: "700" },
-          icon: { path: G.SymbolPath.CIRCLE, scale: 14, fillColor: PRIMARY,
-            fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
-        })));
-
-    const last = trackPoints[trackPoints.length - 1];
-    const currentPos = last
-      ? { lat: last.lat, lng: last.lng }
-      : punchInLocation?.lat
-      ? { lat: punchInLocation.lat, lng: punchInLocation.lng }
-      : null;
-
-    if (currentPos && isPunchedIn && !hasPunchedOut) {
-      pulseRef.current = new G.Marker({
-        position: currentPos, map, title: "Current Location", zIndex: 20,
-        icon: { path: G.SymbolPath.CIRCLE, scale: 10, fillColor: "#ef4444",
-          fillOpacity: 1, strokeColor: "rgba(239,68,68,0.35)", strokeWeight: 10 },
-      });
-      const iw = new G.InfoWindow({
-        content: `<div style="font-family:sans-serif;font-size:12px;font-weight:700;color:#0f172a;padding:2px 4px">📍 Current Location</div>`,
-        disableAutoPan: true,
-      });
-      iw.open(map, pulseRef.current);
-      setTimeout(() => iw.close(), 4000);
-    }
-
-    const all = [
-      ...(punchInLocation?.lat ? [{ lat: punchInLocation.lat, lng: punchInLocation.lng }] : []),
-      ...trackPoints.map(p => ({ lat: p.lat, lng: p.lng })),
-      ...visits.filter(v => v.latitude && v.longitude).map(v => ({ lat: v.latitude, lng: v.longitude })),
-    ];
-    if (all.length >= 2) {
-      const b = new G.LatLngBounds();
-      all.forEach(c => b.extend(c));
-      map.fitBounds(b, { top: 60, bottom: 40, left: 40, right: 40 });
-    } else if (all.length === 1) {
-      map.setCenter(all[0]); map.setZoom(16);
-    }
-  }, [ready, trackPoints, visits, isPunchedIn, hasPunchedOut, punchInLocation]);
-
-  const live = isPunchedIn && !hasPunchedOut;
-  const styleOptions = [
-    { value: "roadmap",   label: "Roadmap",   icon: <Map sx={{ fontSize: 14 }} /> },
-    { value: "satellite", label: "Satellite", icon: <Satellite sx={{ fontSize: 14 }} /> },
-    { value: "terrain",   label: "Terrain",   icon: <Layers sx={{ fontSize: 14 }} /> },
-  ];
-  const curStyle = styleOptions.find(s => s.value === mapStyle);
-
-  return (
-    <Box sx={{ position: "relative", width: "100%", height: "100%" }}>
-      {loading && !ready
-        ? <Skeleton variant="rectangular" width="100%" height="100%" />
-        : <Box ref={mapRef} sx={{ width: "100%", height: "100%" }} />}
-
-      {/* Map style picker */}
-      <Box sx={{ position: "absolute", top: 12, left: 12, zIndex: 10 }}>
-        <Box onClick={() => setStyleMenu(p => !p)}
-          sx={{ display: "flex", alignItems: "center", gap: 0.75, bgcolor: "#fff",
-            borderRadius: "10px", px: 1.5, py: 0.75, cursor: "pointer",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0" }}>
-          {curStyle?.icon}
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1e293b" }}>
-            {curStyle?.label}
-          </Typography>
-          <ExpandMore sx={{ fontSize: 16, color: "#64748b" }} />
-        </Box>
-        {styleMenu && (
-          <Box sx={{ position: "absolute", top: "calc(100% + 6px)", left: 0, bgcolor: "#fff",
-            borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
-            border: "1px solid #e2e8f0", overflow: "hidden", zIndex: 100, minWidth: 130 }}>
-            {styleOptions.map(s => (
-              <Box key={s.value} onClick={() => { onMapStyleChange(s.value); setStyleMenu(false); }}
-                sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1,
-                  cursor: "pointer", bgcolor: mapStyle === s.value ? alpha(PRIMARY, 0.06) : "transparent",
-                  color: mapStyle === s.value ? PRIMARY : "#374151",
-                  "&:hover": { bgcolor: "#f8fafc" }, fontSize: "0.8rem", fontWeight: 600 }}>
-                {s.icon} {s.label}
-              </Box>
-            ))}
-          </Box>
-        )}
-      </Box>
-
-      {/* Live badge */}
-      {punchInLocation?.lat && (
-        <Box sx={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 10 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, bgcolor: "rgba(255,255,255,0.96)",
-            backdropFilter: "blur(8px)", borderRadius: "999px", px: 1.5, py: 0.5,
-            boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
-            border: `1px solid ${alpha(live ? SUCCESS : "#94a3b8", 0.4)}` }}>
-            <Box sx={{ width: 7, height: 7, borderRadius: "50%",
-              bgcolor: live ? SUCCESS : "#94a3b8", flexShrink: 0,
-              ...(live && {
-                animation: "p 1.5s ease-in-out infinite",
-                "@keyframes p": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.2 } },
-              }) }} />
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700,
-              color: live ? "#064e3b" : "#475569" }}>
-              {live ? "Live Tracking" : "Punched Out"}
-            </Typography>
-          </Box>
-        </Box>
-      )}
-
-      {/* Fullscreen toggle */}
-      <Box onClick={onToggleFullscreen}
-        sx={{ position: "absolute", top: 12, right: 12, zIndex: 10, bgcolor: "#fff",
-          borderRadius: "10px", p: 0.75, cursor: "pointer",
-          boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0",
-          display: "flex", "&:hover": { bgcolor: "#f8fafc" } }}>
-        {fullscreen
-          ? <FullscreenExit sx={{ fontSize: 18, color: "#374151" }} />
-          : <Fullscreen sx={{ fontSize: 18, color: "#374151" }} />}
-      </Box>
-
-      {/* Legend */}
-      {(punchInLocation?.lat || visits.some(v => v.latitude)) && (
-        <Box sx={{ position: "absolute", top: 52, right: 12, zIndex: 10,
-          bgcolor: "rgba(255,255,255,0.95)", backdropFilter: "blur(4px)",
-          px: 1.25, py: 0.75, borderRadius: "8px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.1)", display: "flex", flexDirection: "column", gap: 0.5 }}>
-          {[["#22c55e", "Start"], ["line", "Route"], [PRIMARY, "Visit"]].map(([c, l]) => (
-            <Box key={l} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-              {c === "line"
-                ? <Box sx={{ width: 20, height: 3, bgcolor: "#ef4444", borderRadius: 1 }} />
-                : <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: c, border: "2px solid #fff" }} />}
-              <Typography sx={{ fontSize: "0.6rem", fontWeight: 600, color: "#374151" }}>{l}</Typography>
-            </Box>
-          ))}
-        </Box>
-      )}
-
-      {/* Distance label */}
-      <Box sx={{ position: "absolute", bottom: 12, left: 12, zIndex: 10,
-        bgcolor: "rgba(255,255,255,0.95)", backdropFilter: "blur(4px)",
-        px: 1.5, py: 0.75, borderRadius: "8px",
-        boxShadow: "0 1px 6px rgba(0,0,0,0.12)", pointerEvents: "none" }}>
-        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#0f172a" }}>
-          Today's Route: {totalDistance.toFixed(1)} km
-        </Typography>
-      </Box>
     </Box>
   );
 };
@@ -589,13 +356,13 @@ const FilterDrawer = ({ open, onClose, filters, onApply }) => {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function MemberVisitHistory({ userId: propUserId }) {
-  const theme   = useTheme();
+  const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userId: paramUserId } = useParams();
   useLocation();
   const { user: authUser } = useAuth();
 
-  const userId     = paramUserId || propUserId || null;
+  const userId      = paramUserId || propUserId || null;
   const isAdminView = !!paramUserId;
 
   const targetUserId = userId
@@ -611,30 +378,21 @@ export default function MemberVisitHistory({ userId: propUserId }) {
         } catch { return null; }
       })();
 
-  const [visits,        setVisits]        = useState([]);
-  const [visitStats,    setVisitStats]    = useState(null); // ✅ FIX: store stats so the call isn't wasted
-  const [loading,       setLoading]       = useState(true);
-  const [error,         setError]         = useState(null);
-  const [page,          setPage]          = useState(1);
-  const [hasMore,       setHasMore]       = useState(false);
-  const [loadingMore,   setLoadingMore]   = useState(false);
+  const [visits,          setVisits]          = useState([]);
+  const [visitStats,      setVisitStats]      = useState(null);
+  const [loading,         setLoading]         = useState(true);
+  const [error,           setError]           = useState(null);
+  const [page,            setPage]            = useState(1);
+  const [hasMore,         setHasMore]         = useState(false);
+  const [loadingMore,     setLoadingMore]     = useState(false);
+  const [isPunchedIn,     setIsPunchedIn]     = useState(false);
+  const [hasPunchedOut,   setHasPunchedOut]   = useState(false);
   const [punchInLocation, setPunchInLocation] = useState(null);
-  const [isPunchedIn,   setIsPunchedIn]   = useState(false);
-  const [hasPunchedOut, setHasPunchedOut] = useState(false);
-  const [trackPoints,   setTrackPoints]   = useState([]);
-  const [battery,       setBattery]       = useState({ percentage: null, isCharging: false });
-  const [filters,       setFilters]       = useState({ dateRange: "today", statuses: [] });
-  const [filterOpen,    setFilterOpen]    = useState(false);
-  const [mapStyle,      setMapStyle]      = useState("roadmap");
-  const [fullscreen,    setFullscreen]    = useState(false);
-  const [lastUpdated,   setLastUpdated]   = useState(null);
-
-  // Poll track points while user is on duty
-  useEffect(() => {
-    if (!isPunchedIn || hasPunchedOut) return;
-    const t = setInterval(() => setTrackPoints(getTrackPoints()), 5000);
-    return () => clearInterval(t);
-  }, [isPunchedIn, hasPunchedOut]);
+  const [battery,         setBattery]         = useState({ percentage: null, isCharging: false });
+  const [filters,         setFilters]         = useState({ dateRange: "today", statuses: [] });
+  const [filterOpen,      setFilterOpen]      = useState(false);
+  const [fullscreen,      setFullscreen]      = useState(false);
+  const [lastUpdated,     setLastUpdated]     = useState(null);
 
   // Stop tracker on unmount
   useEffect(() => {
@@ -653,7 +411,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!res.ok) return;
-      const data = await res.json();
+      const data  = await res.json();
       const logs  = data?.data || data?.result || [];
       const entry = logs.find(
         b => String(b.userId || b._id || b.user || "") === String(targetUserId)
@@ -689,15 +447,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
           address: att.punchIn?.address || null,
           time:    att.punchIn?.time    || null,
         });
-        try {
-          const p = await apiFetch(
-            "/location/today-path",
-            targetUserId ? { salesmanId: targetUserId } : {}
-          );
-          const pts = p?.result || p?.data || [];
-          if (pts.length)
-            setTrackPoints(pts.map(pt => ({ lat: pt.lat, lng: pt.lng, time: pt.recordedAt })));
-        } catch {}
       } else {
         setIsPunchedIn(false);
         setHasPunchedOut(false);
@@ -725,7 +474,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
     finally { setLoading(false); setLoadingMore(false); }
   }, [filters, targetUserId, isAdminView]);
 
-  // ✅ FIX: store stats result so the API call isn't wasted
   const fetchStats = useCallback(async () => {
     try {
       const res = await apiFetch("/visit/stats", {
@@ -736,8 +484,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
     } catch {}
   }, [filters, targetUserId, isAdminView]);
 
-  // ✅ FIX: include the callback functions in the dependency array so React
-  //         always has stable references. useCallback handles memoisation.
   const authUserId = authUser?._id || authUser?.id || authUser?.userId || null;
   useEffect(() => {
     if (!targetUserId) return;
@@ -767,14 +513,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
     const mins = Math.floor((Date.now() - lastUpdated) / 60000);
     return mins < 1 ? "just now" : `${mins}m ago`;
   })() : null;
-
-  const dutyStatus = !isPunchedIn && !hasPunchedOut
-    ? "absent" : isPunchedIn && !hasPunchedOut ? "active" : "completed";
-  const dutyCfg = {
-    absent:    { label: "Not Punched In Today", color: ERROR,   bg: "#fef2f2", border: "#fecaca" },
-    active:    { label: "Currently On Duty",    color: SUCCESS, bg: "#f0fdf4", border: "#bbf7d0" },
-    completed: { label: "Day Completed",         color: WARNING, bg: "#fffbeb", border: "#fde68a" },
-  }[dutyStatus];
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f4f6fb" }}>
@@ -809,24 +547,42 @@ export default function MemberVisitHistory({ userId: propUserId }) {
               </Box>
             )}
 
-            {/* Map */}
-            <Box sx={{ borderRadius: "16px", overflow: "hidden", border: "1px solid #e2e8f0",
+            {/* ✅ Leaflet map — replaces Google Maps TrackMap */}
+            <Box sx={{
+              borderRadius: "16px", overflow: "hidden", border: "1px solid #e2e8f0",
               height: fullscreen ? "70vh" : { xs: 300, sm: 400, lg: 460 },
-              boxShadow: "0 4px 24px rgba(0,0,0,0.06)", transition: "height 0.3s ease" }}>
-              <TrackMap
-                punchInLocation={punchInLocation} visits={visits} mapStyle={mapStyle}
-                loading={loading} totalDistance={totalDist} isPunchedIn={isPunchedIn}
-                hasPunchedOut={hasPunchedOut} trackPoints={trackPoints} fullscreen={fullscreen}
-                onToggleFullscreen={() => setFullscreen(p => !p)} onMapStyleChange={setMapStyle}
+              boxShadow: "0 4px 24px rgba(0,0,0,0.06)", transition: "height 0.3s ease",
+              position: "relative",
+            }}>
+              {/* Fullscreen toggle — kept exactly as before */}
+              <Box
+                onClick={() => setFullscreen(p => !p)}
+                sx={{
+                  position: "absolute", top: 50, right: 10, zIndex: 1000,
+                  bgcolor: "#fff", borderRadius: "10px", p: 0.75, cursor: "pointer",
+                  boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0",
+                  display: "flex", "&:hover": { bgcolor: "#f8fafc" },
+                }}
+              >
+                {fullscreen
+                  ? <FullscreenExit sx={{ fontSize: 18, color: "#374151" }} />
+                  : <Fullscreen    sx={{ fontSize: 18, color: "#374151" }} />}
+              </Box>
+
+              <LiveTrackingMap
+                isPunchedIn={isPunchedIn}
+                hasPunchedOut={hasPunchedOut}
+                userId={targetUserId}
+                height="100%"
               />
             </Box>
 
             {/* Stats row */}
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
               {[
-                { icon: <Route sx={{ fontSize: 20, color: PRIMARY }} />,    label: "Distance", value: totalDist.toFixed(1), unit: "km" },
+                { icon: <Route sx={{ fontSize: 20, color: PRIMARY }} />,      label: "Distance", value: totalDist.toFixed(1), unit: "km" },
                 { icon: <LocationOn sx={{ fontSize: 20, color: PRIMARY }} />, label: "Visits",   value: visits.length,         unit: "stops" },
-                { icon: <Timer sx={{ fontSize: 20, color: PRIMARY }} />,    label: "Avg. Time", value: avgTime,                unit: "mins" },
+                { icon: <Timer sx={{ fontSize: 20, color: PRIMARY }} />,      label: "Avg. Time", value: avgTime,               unit: "mins" },
               ].map((m, i) => (
                 <Box key={i} sx={{ bgcolor: "#fff", borderRadius: "14px", p: 2.5,
                   border: "1px solid #e8edf2", boxShadow: "0 1px 6px rgba(0,0,0,0.04)",

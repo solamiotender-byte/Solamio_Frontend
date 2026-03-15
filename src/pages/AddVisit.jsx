@@ -1,4 +1,10 @@
-// components/VisitDetails.jsx — Fixed: uses native geolocation, no AuthContext location deps
+// components/VisitDetails.jsx
+// Changes vs original:
+//   • Removed the "Location Coordinates" GPS card (accuracy badge, lat/lng grid, retry button)
+//   • Added an interactive Leaflet map in its place — shows live pin of current position
+//   • Reverse-geocodes the position via Nominatim and auto-fills locationName if it is empty
+//   • All other behaviour (camera, lead form, remarks, submit, success dialog) is unchanged
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Paper, Typography, Button, TextField, Grid, Stack,
@@ -20,8 +26,21 @@ import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// Leaflet — loaded via CDN in index.html or imported from the package
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix default Leaflet marker icon (Webpack / Vite asset issue)
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
 // ─── Constants ────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://solar-backend-4bsb.onrender.com/api/v1';
+const BASE_URL  = 'https://solar-backend-4bsb.onrender.com/api/v1';
 const PRIMARY   = '#4569ea';
 const SECONDARY = '#1a237e';
 const SUCCESS   = '#4caf50';
@@ -61,6 +80,8 @@ const FormSection = styled(Paper)(({ theme }) => ({
   backgroundColor: '#fff',
   boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
   marginBottom: theme.spacing(2),
+  overflow: 'hidden',      // prevents Leaflet map from bleeding outside the card
+  isolation: 'isolate',   // creates a new stacking context so z-index stays contained
   [theme.breakpoints.down('sm')]: { padding: theme.spacing(2) },
 }));
 
@@ -86,16 +107,14 @@ const ImagePreview = styled(Box)(({ theme }) => ({
   },
 }));
 
-// ─── Accuracy helpers ─────────────────────────────────────────────────────────
-const accuracyLevel = (acc) => {
-  if (!acc) return 'unknown';
-  if (acc <= 20) return 'good';
-  if (acc <= 50) return 'fair';
-  return 'poor';
-};
-
-const accuracyColor = (level) =>
-  ({ good: SUCCESS, fair: WARNING, poor: ERROR_COL, unknown: '#94a3b8' }[level]);
+// ─── Leaflet helper: fly map to new centre when coords change ─────────────────
+function FlyToLocation({ coords }) {
+  const map = useMap();
+  useEffect(() => {
+    if (coords) map.flyTo([coords.lat, coords.lng], 17, { duration: 1.2 });
+  }, [coords, map]);
+  return null;
+}
 
 // ─── Success Dialog ───────────────────────────────────────────────────────────
 const SuccessDialog = ({ open, visitData, onClose }) => {
@@ -193,27 +212,27 @@ export default function VisitDetails({ onClose, onSave }) {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
 
-  const cameraInputRef    = useRef(null);
-  const locationWatchRef  = useRef(null);
+  const cameraInputRef = useRef(null);
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [loading,          setLoading]          = useState(false);
-  const [location,         setLocation]         = useState(null);
-  const [locationLoading,  setLocationLoading]  = useState(true);
-  const [locationAttempts, setLocationAttempts] = useState(0);
-  const [imageFile,        setImageFile]        = useState(null);
-  const [preview,          setPreview]          = useState(null);
-  const [formData,         setFormData]         = useState({
+  const [loading,           setLoading]           = useState(false);
+  const [location,          setLocation]          = useState(null);
+  const [locationLoading,   setLocationLoading]   = useState(true);
+  const [locationAttempts,  setLocationAttempts]  = useState(0);
+  const [geocoding,         setGeocoding]         = useState(false);
+  const [imageFile,         setImageFile]         = useState(null);
+  const [preview,           setPreview]           = useState(null);
+  const [formData,          setFormData]          = useState({
     locationName: '', remarks: '', contactPerson: '', phone: '', email: '',
   });
-  const [isLeadCreated,    setIsLeadCreated]    = useState('no');
-  const [error,            setError]            = useState(null);
-  const [success,          setSuccess]          = useState(false);
-  const [createdVisit,     setCreatedVisit]     = useState(null);
-  const [validationErrors, setValidationErrors] = useState({});
-  const [bottomNav,        setBottomNav]        = useState(0);
-  const [fullscreenImage,  setFullscreenImage]  = useState(false);
-  const [isOnline,         setIsOnline]         = useState(navigator.onLine);
+  const [isLeadCreated,     setIsLeadCreated]     = useState('no');
+  const [error,             setError]             = useState(null);
+  const [success,           setSuccess]           = useState(false);
+  const [createdVisit,      setCreatedVisit]      = useState(null);
+  const [validationErrors,  setValidationErrors]  = useState({});
+  const [bottomNav,         setBottomNav]         = useState(0);
+  const [fullscreenImage,   setFullscreenImage]   = useState(false);
+  const [isOnline,          setIsOnline]          = useState(navigator.onLine);
 
   // ── Online/offline listener ───────────────────────────────────────────────
   useEffect(() => {
@@ -224,7 +243,33 @@ export default function VisitDetails({ onClose, onSave }) {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  // ── Geolocation (native browser API) ─────────────────────────────────────
+  // ── Reverse geocode via OpenStreetMap Nominatim ───────────────────────────
+  const reverseGeocode = useCallback(async (lat, lng) => {
+    try {
+      setGeocoding(true);
+      const res  = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      const data = await res.json();
+      if (data?.display_name) {
+        // Build a compact label: shop / road / suburb / city
+        const a = data.address || {};
+        const label =
+          a.shop || a.amenity || a.building ||
+          [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village]
+            .filter(Boolean).join(', ');
+        return label || data.display_name;
+      }
+    } catch (e) {
+      console.warn('Reverse geocode failed:', e);
+    } finally {
+      setGeocoding(false);
+    }
+    return null;
+  }, []);
+
+  // ── Geolocation ───────────────────────────────────────────────────────────
   const getCurrentLocation = useCallback((highAccuracy = true, attempt = 0) => {
     setLocationLoading(true);
     setError(null);
@@ -236,19 +281,25 @@ export default function VisitDetails({ onClose, onSave }) {
     }
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocation({
-          lat:      pos.coords.latitude,
-          lng:      pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        });
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setLocation({ lat, lng, accuracy: pos.coords.accuracy });
         setLocationAttempts(0);
         setLocationLoading(false);
+
+        // Auto-fill location name only when it is still empty
+        const name = await reverseGeocode(lat, lng);
+        if (name) {
+          setFormData(prev => ({
+            ...prev,
+            locationName: prev.locationName.trim() === '' ? name : prev.locationName,
+          }));
+        }
       },
       (err) => {
         console.warn('Geolocation error:', err);
 
-        // Timeout → retry with low accuracy
         if (err.code === err.TIMEOUT || err.code === 3) {
           if (highAccuracy && attempt < 1) {
             setError('High accuracy timeout, retrying with low accuracy…');
@@ -264,7 +315,6 @@ export default function VisitDetails({ onClose, onSave }) {
           }
         }
 
-        // Permission denied
         if (err.code === err.PERMISSION_DENIED || err.code === 1) {
           setError('Location permission denied. Please enable GPS and try again.');
         } else {
@@ -272,20 +322,13 @@ export default function VisitDetails({ onClose, onSave }) {
         }
         setLocationLoading(false);
       },
-      {
-        enableHighAccuracy: highAccuracy,
-        timeout:            15000,
-        maximumAge:         0,
-      }
+      { enableHighAccuracy: highAccuracy, timeout: 15000, maximumAge: 0 }
     );
-  }, []);
+  }, [reverseGeocode]);
 
   // Initial location fetch
   useEffect(() => {
     getCurrentLocation();
-    return () => {
-      if (locationWatchRef.current) navigator.geolocation.clearWatch(locationWatchRef.current);
-    };
   }, []);
 
   // ── Camera ─────────────────────────────────────────────────────────────────
@@ -346,10 +389,10 @@ export default function VisitDetails({ onClose, onSave }) {
 
     try {
       const fd = new FormData();
-      fd.append('latitude',       location.lat.toString());
-      fd.append('longitude',      location.lng.toString());
-      fd.append('locationName',   formData.locationName.trim());
-      fd.append('isLeadCreated',  isLeadCreated);
+      fd.append('latitude',      location.lat.toString());
+      fd.append('longitude',     location.lng.toString());
+      fd.append('locationName',  formData.locationName.trim());
+      fd.append('isLeadCreated', isLeadCreated);
       if (formData.remarks.trim())         fd.append('remarks',       formData.remarks.trim());
       if (isLeadCreated === 'yes') {
         if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
@@ -358,14 +401,12 @@ export default function VisitDetails({ onClose, onSave }) {
       }
       fd.append('photos', imageFile);
 
-      const res = await fetch(`${BASE_URL}/visit/create`, {
+      const res  = await fetch(`${BASE_URL}/visit/create`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
         body:    fd,
       });
-
       const json = await res.json();
-
       if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
 
       const visitData = json.data || json;
@@ -373,7 +414,6 @@ export default function VisitDetails({ onClose, onSave }) {
       setSuccess(true);
       if (onSave) onSave(visitData);
 
-      // Reset form
       setImageFile(null);
       setPreview(null);
       setFormData({ locationName: '', remarks: '', contactPerson: '', phone: '', email: '' });
@@ -387,10 +427,12 @@ export default function VisitDetails({ onClose, onSave }) {
     }
   };
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-  const accLevel  = accuracyLevel(location?.accuracy);
-  const accColor  = accuracyColor(accLevel);
   const canSubmit = !loading && !!location && !!imageFile && !!formData.locationName.trim();
+
+  // Default map centre: Kolkata (fallback before GPS arrives)
+  const mapCenter = location
+    ? [location.lat, location.lng]
+    : [22.5726, 88.3639];
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: isMobile ? 8 : 4 }}>
@@ -419,7 +461,6 @@ export default function VisitDetails({ onClose, onSave }) {
             </Box>
           </Box>
 
-          {/* Online status */}
           <Box sx={{
             display: 'flex', alignItems: 'center', gap: 1,
             px: 1.5, py: 0.5, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 2,
@@ -505,9 +546,16 @@ export default function VisitDetails({ onClose, onSave }) {
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <LocationOn sx={{ color: alpha(PRIMARY, 0.5) }} />
+                        {geocoding
+                          ? <CircularProgress size={16} sx={{ color: PRIMARY }} />
+                          : <LocationOn sx={{ color: alpha(PRIMARY, 0.5) }} />}
                       </InputAdornment>
                     ),
+                    endAdornment: geocoding ? (
+                      <InputAdornment position="end">
+                        <Typography variant="caption" color="text.secondary">detecting…</Typography>
+                      </InputAdornment>
+                    ) : null,
                   }} />
               </FormSection>
             </Stack>
@@ -532,7 +580,7 @@ export default function VisitDetails({ onClose, onSave }) {
                 </FormControl>
               </FormSection>
 
-              {/* Contact info — only if lead created */}
+              {/* Contact info */}
               {isLeadCreated === 'yes' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
@@ -562,92 +610,141 @@ export default function VisitDetails({ onClose, onSave }) {
                 </motion.div>
               )}
 
-              {/* GPS status */}
-              <FormSection>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+              {/* ── MAP section (replaces old GPS coordinates card) ──────── */}
+              <FormSection sx={{ padding: '0 !important' }}>
+                {/* Header row — manual padding so map can flush to card edge */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, px: 2.5, pt: 2.5, pb: 1.5 }}>
                   <Typography variant="subtitle1" fontWeight={700}
                     sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY }}>
-                    <GpsFixed /> Location Coordinates
+                    <GpsFixed /> Your Location
                   </Typography>
-                  <Button size="small" startIcon={<Refresh />}
+                  <Button size="small" startIcon={locationLoading ? <CircularProgress size={14} /> : <Refresh />}
                     onClick={() => getCurrentLocation()} disabled={locationLoading}
                     sx={{ color: PRIMARY, width: isMobile ? '100%' : 'auto' }}>
-                    Refresh
+                    {locationLoading ? 'Locating…' : 'Refresh'}
                   </Button>
                 </Box>
 
-                {locationLoading ? (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <CircularProgress size={isMobile ? 32 : 40} sx={{ color: PRIMARY, mb: 2 }} />
-                    <Typography variant="body2" color="text.secondary">
-                      {locationAttempts > 0 ? `Attempt ${locationAttempts}/3…` : 'Getting your location…'}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Please ensure GPS is enabled
-                    </Typography>
-                    {locationAttempts > 0 && (
-                      <LinearProgress sx={{ mt: 2, borderRadius: 2 }} variant="determinate"
-                        value={Math.min(locationAttempts * 33, 99)} />
-                    )}
-                  </Box>
-                ) : location ? (
-                  <Paper sx={{
-                    p: 2, borderRadius: 2,
-                    background: `linear-gradient(135deg, ${alpha(accColor, 0.1)}, #fff)`,
-                    border: `1px solid ${alpha(accColor, 0.3)}`,
-                  }}>
-                    <Stack spacing={2}>
-                      {/* Accuracy row */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {accLevel === 'good'    && <GpsFixed   sx={{ color: SUCCESS  }} />}
-                          {accLevel === 'fair'    && <MyLocation sx={{ color: WARNING  }} />}
-                          {accLevel === 'poor'    && <GpsOff     sx={{ color: ERROR_COL }} />}
-                          {accLevel === 'unknown' && <LocationOn  sx={{ color: '#94a3b8' }} />}
-                          <Typography variant="body2">Accuracy: ±{location.accuracy?.toFixed(0)}m</Typography>
-                        </Box>
-                        <Chip label={accLevel.toUpperCase()} size="small"
-                          sx={{ bgcolor: alpha(accColor, 0.1), color: accColor, fontWeight: 600, height: 24 }} />
-                      </Box>
+                {/* Map — fills card width flush, card's overflow:hidden + borderRadius clips corners */}
+                <Box sx={{
+                  height: 280,
+                  position: 'relative',
+                }}>
+                  {/* Overlay while first GPS fix is pending */}
+                  {locationLoading && !location && (
+                    <Box sx={{
+                      position: 'absolute', inset: 0, zIndex: 1000,
+                      bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(4px)',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', gap: 1,
+                    }}>
+                      <CircularProgress size={36} sx={{ color: PRIMARY }} />
+                      <Typography variant="caption" color="text.secondary">
+                        {locationAttempts > 0 ? `Attempt ${locationAttempts}/3…` : 'Getting your location…'}
+                      </Typography>
+                      {locationAttempts > 0 && (
+                        <LinearProgress sx={{ width: 120, borderRadius: 2 }} variant="determinate"
+                          value={Math.min(locationAttempts * 33, 99)} />
+                      )}
+                    </Box>
+                  )}
 
-                      {/* Coords display */}
-                      <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
-                        <Typography variant="caption" color="text.secondary">Current Position</Typography>
-                        <Typography variant="body2" fontFamily="monospace" fontWeight={600}
-                          sx={{ fontSize: isMobile ? '0.8rem' : '0.9rem', wordBreak: 'break-all', mt: 0.5 }}>
-                          {location.lat.toFixed(6)}° N, {location.lng.toFixed(6)}° E
+                  {/* Error state (no location at all) */}
+                  {!locationLoading && !location && (
+                    <Box sx={{
+                      position: 'absolute', inset: 0, zIndex: 1000,
+                      bgcolor: 'rgba(255,255,255,0.9)',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', gap: 1, p: 2,
+                    }}>
+                      <GpsOff sx={{ fontSize: 40, color: ERROR_COL }} />
+                      <Typography color="error" textAlign="center" variant="body2">
+                        {error || 'Failed to get location'}
+                      </Typography>
+                      <Button variant="contained" size="small" onClick={() => getCurrentLocation()}
+                        sx={{ mt: 1, borderRadius: 2, bgcolor: PRIMARY, '&:hover': { bgcolor: SECONDARY } }}>
+                        Retry
+                      </Button>
+                    </Box>
+                  )}
+
+                  <MapContainer
+                    center={mapCenter}
+                    zoom={location ? 17 : 13}
+                    style={{ height: '100%', width: '100%' }}
+                    zoomControl={true}
+                    scrollWheelZoom={false}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+
+                    {/* Fly map to GPS position when it arrives / refreshes */}
+                    {location && <FlyToLocation coords={location} />}
+
+                    {/* Pin at current position */}
+                    {location && (
+                      <Marker position={[location.lat, location.lng]}>
+                        <Popup>
+                          <Box sx={{ minWidth: 160 }}>
+                            <Typography variant="caption" fontWeight={700} display="block">
+                              📍 You are here
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {location.lat.toFixed(6)}°, {location.lng.toFixed(6)}°
+                            </Typography>
+                            {location.accuracy && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Accuracy: ±{location.accuracy.toFixed(0)} m
+                              </Typography>
+                            )}
+                          </Box>
+                        </Popup>
+                      </Marker>
+                    )}
+                  </MapContainer>
+                </Box>
+
+                {/* Compact coordinate strip below the map */}
+                {/* Coordinate strip + validation — add horizontal padding manually */}
+                <Box sx={{ px: 2.5, pt: 1.5, pb: 2 }}>
+                  {location && (
+                    <Box sx={{
+                      px: 2, py: 1,
+                      bgcolor: alpha(PRIMARY, 0.04),
+                      borderRadius: 2,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      flexWrap: 'wrap', gap: 1,
+                    }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        <CheckCircle sx={{ fontSize: 16, color: SUCCESS }} />
+                        <Typography variant="caption" fontFamily="monospace" fontWeight={600} color="text.primary">
+                          {location.lat.toFixed(5)}°, {location.lng.toFixed(5)}°
                         </Typography>
                       </Box>
+                      {location.accuracy && (
+                        <Chip
+                          size="small"
+                          label={`±${location.accuracy.toFixed(0)} m`}
+                          sx={{
+                            height: 22, fontSize: '0.65rem', fontWeight: 700,
+                            bgcolor: location.accuracy <= 20
+                              ? alpha(SUCCESS, 0.12) : location.accuracy <= 50
+                              ? alpha(WARNING, 0.12) : alpha(ERROR_COL, 0.12),
+                            color: location.accuracy <= 20
+                              ? SUCCESS : location.accuracy <= 50
+                              ? WARNING : ERROR_COL,
+                          }}
+                        />
+                      )}
+                    </Box>
+                  )}
 
-                      <Grid container spacing={isMobile ? 1 : 2}>
-                        {[
-                          { label: 'Latitude',  value: `${location.lat.toFixed(6)}°` },
-                          { label: 'Longitude', value: `${location.lng.toFixed(6)}°` },
-                        ].map(({ label, value }) => (
-                          <Grid item xs={6} key={label}>
-                            <Paper sx={{ p: 1.5, bgcolor: alpha(PRIMARY, 0.05), borderRadius: 2 }}>
-                              <Typography variant="caption" color="text.secondary">{label}</Typography>
-                              <Typography variant="body2" fontWeight={600}
-                                sx={{ fontSize: isMobile ? '0.8rem' : '0.9rem' }}>{value}</Typography>
-                            </Paper>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    </Stack>
-                  </Paper>
-                ) : (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <GpsOff sx={{ fontSize: 48, color: ERROR_COL, mb: 2 }} />
-                    <Typography color="error" gutterBottom>{error || 'Failed to get location'}</Typography>
-                    <Button variant="contained" onClick={() => getCurrentLocation()} fullWidth={isMobile}
-                      sx={{ mt: 2, borderRadius: 2, bgcolor: PRIMARY, '&:hover': { bgcolor: SECONDARY } }}>
-                      Retry Location
-                    </Button>
-                  </Box>
-                )}
-                {validationErrors.location && (
-                  <FormHelperText error sx={{ mt: 1 }}>{validationErrors.location}</FormHelperText>
-                )}
+                  {validationErrors.location && (
+                    <FormHelperText error sx={{ mt: 1 }}>{validationErrors.location}</FormHelperText>
+                  )}
+                </Box>
               </FormSection>
 
               {/* Remarks */}
