@@ -675,9 +675,12 @@ export default function VisitDetails({ onClose, onSave }) {
                     zoomControl={true}
                     scrollWheelZoom={false}
                   >
+                    {/* CartoDB Voyager — buildings, small roads, lanes, full detail */}
                     <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='\&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \&copy; <a href="https://carto.com/">CARTO</a>'
+                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                      maxZoom={20}
+                      subdomains="abcd"
                     />
 
                     {/* Fly map to GPS position when it arrives / refreshes */}

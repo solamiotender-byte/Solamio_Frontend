@@ -4,6 +4,7 @@
 // • Sends live points via socket → location:update (admin sees instantly)
 // • Flushes to REST /api/v1/location/track/bulk every 30 s (offline backup)
 // • Loads today's existing trail from GET /api/v1/location/today on mount
+// • locateTrigger prop: increment it from parent to fly+zoom to current GPS position
 
 import { useEffect, useState, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
@@ -43,13 +44,37 @@ const redIcon = new L.Icon({
   iconSize:    [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41],
 });
 
-// Smoothly pan map to latest GPS fix
+// ── Smoothly pan map to latest GPS fix (used during live tracking) ──────────
 function RecenterMap({ lat, lng }) {
   const map = useMap();
   useEffect(() => {
     if (lat != null && lng != null)
       map.setView([lat, lng], map.getZoom(), { animate: true });
   }, [lat, lng, map]);
+  return null;
+}
+
+// ── Fly AND zoom to current device GPS position when trigger increments ──────
+// This is what the "Locate Me" button in MemberVisitHistory triggers.
+// It always fetches a fresh GPS fix and flies to it at zoom level 17.
+function FlyToCurrentLocation({ trigger }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!trigger) return;           // skip on initial mount (trigger starts at 0)
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        map.flyTo(
+          [pos.coords.latitude, pos.coords.longitude],
+          17,                       // zoom level 17 = street level, no manual zoom needed
+          { duration: 1.5, easeLinearity: 0.25 }
+        );
+      },
+      (err) => console.warn("[LocateMe] GPS error:", err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }, [trigger]);                    // re-runs every time locateTrigger increments
   return null;
 }
 
@@ -61,19 +86,21 @@ function RecenterMap({ lat, lng }) {
  *   hasPunchedOut  {boolean}    true once user has ended the day
  *   userId         {string}     current user's _id (to load today's trail)
  *   height         {string}     CSS height  (default "400px")
+ *   locateTrigger  {number}     increment this from the parent to fly+zoom to current location
  *   onPointsChange {Function}   optional callback(allPoints[])
  */
 export default function LiveTrackingMap({
-  isPunchedIn   = false,
-  hasPunchedOut = false,
-  userId        = null,
-  height        = "400px",
+  isPunchedIn    = false,
+  hasPunchedOut  = false,
+  userId         = null,
+  height         = "400px",
+  locateTrigger  = 0,
   onPointsChange,
 }) {
   const [points,   setPoints]   = useState([]); // [[lat, lng], ...]
   const [accuracy, setAccuracy] = useState(null);
   const [error,    setError]    = useState(null);
-  const [sockAck,  setSockAck]  = useState(null); // last socket ack time
+  const [sockAck,  setSockAck]  = useState(null);
   const { socket, connected }   = useSocket();
   const prevPunchedIn           = useRef(false);
   const prevPunchedOut          = useRef(false);
@@ -148,13 +175,10 @@ export default function LiveTrackingMap({
   // ── Listen for socket events from server ───────────────────────────────────
   useEffect(() => {
     if (!socket) return;
-
     const onAck   = (data) => setSockAck(data.timestamp);
     const onError = (data) => setError(data.message);
-
     socket.on("location:ack",   onAck);
     socket.on("location:error", onError);
-
     return () => {
       socket.off("location:ack",   onAck);
       socket.off("location:error", onError);
@@ -167,16 +191,16 @@ export default function LiveTrackingMap({
   const isLive        = isPunchedIn && !hasPunchedOut;
 
   const accuracyColor =
-    accuracy == null     ? "#94a3b8"
-    : accuracy <= 20     ? "#16a34a"
-    : accuracy <= 50     ? "#d97706"
-    :                      "#dc2626";
+    accuracy == null ? "#94a3b8"
+    : accuracy <= 20 ? "#16a34a"
+    : accuracy <= 50 ? "#d97706"
+    :                  "#dc2626";
 
   const accuracyLabel =
-    accuracy == null     ? "No GPS"
-    : accuracy <= 20     ? "Excellent"
-    : accuracy <= 50     ? "Fair"
-    :                      "Poor";
+    accuracy == null ? "No GPS"
+    : accuracy <= 20 ? "Excellent"
+    : accuracy <= 50 ? "Fair"
+    :                  "Poor";
 
   const fmtTime = (iso) =>
     iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
@@ -266,15 +290,21 @@ export default function LiveTrackingMap({
         style={{ height: "100%", width: "100%", borderRadius: "inherit" }}
         zoomControl
       >
+        {/* CartoDB Voyager — shows buildings, small lanes, footpaths, house detail */}
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='\&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \&copy; <a href="https://carto.com/">CARTO</a>'
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          maxZoom={20}
+          subdomains="abcd"
         />
 
-        {/* Keep map centered on latest point while live */}
+        {/* Keep map centered on latest point while live tracking */}
         {isLive && lastPoint && (
           <RecenterMap lat={lastPoint[0]} lng={lastPoint[1]} />
         )}
+
+        {/* ── Locate Me — flies to current GPS + zooms to level 17 ───────── */}
+        <FlyToCurrentLocation trigger={locateTrigger} />
 
         {/* Start marker — green */}
         {points.length > 0 && (

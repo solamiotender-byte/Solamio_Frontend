@@ -11,16 +11,15 @@ import {
   Fullscreen, FullscreenExit,
   Store, Login, Logout, PhotoCamera, VerifiedUser,
   BatteryChargingFull, BatteryAlert, Battery20, Battery50, Battery80,
-  CalendarToday,
+  CalendarToday, GpsFixed,
 } from "@mui/icons-material";
 import { useLocation, useParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
-  stopTracking, 
-   isCurrentlyTracking,
+  stopTracking,
+  isCurrentlyTracking,
 } from "../utils/Locationtracker.js";
 
-// ✅ Replaced Google Maps TrackMap with Leaflet LiveTrackingMap
 import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -144,7 +143,6 @@ const VisitCard = ({ visit: v, index, isLast }) => {
 
   return (
     <Box sx={{ display: "flex", position: "relative" }}>
-      {/* Spine dot + connector */}
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mr: 2, flexShrink: 0 }}>
         <Box sx={{
           width: 38, height: 38, borderRadius: "50%", bgcolor: dotColor, flexShrink: 0, zIndex: 1,
@@ -168,7 +166,6 @@ const VisitCard = ({ visit: v, index, isLast }) => {
         )}
       </Box>
 
-      {/* Content */}
       <Box sx={{ flex: 1, pb: isLast ? 0 : 3, minWidth: 0 }}>
         <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 0.5, gap: 1 }}>
           <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.9rem",
@@ -394,6 +391,18 @@ export default function MemberVisitHistory({ userId: propUserId }) {
   const [fullscreen,      setFullscreen]      = useState(false);
   const [lastUpdated,     setLastUpdated]     = useState(null);
 
+  // ── Locate-me state ────────────────────────────────────────────────────────
+  // Incremented each time the button is clicked — LiveTrackingMap watches this
+  // and flies to the current position whenever it changes.
+  const [locateTrigger,   setLocateTrigger]   = useState(0);
+  const [locating,        setLocating]        = useState(false);
+
+  const handleLocateMe = () => {
+    setLocating(true);
+    setLocateTrigger(t => t + 1);          // signal the map
+    setTimeout(() => setLocating(false), 1800); // reset spinner after fly animation
+  };
+
   // Stop tracker on unmount
   useEffect(() => {
     return () => { if (isCurrentlyTracking()) stopTracking(); };
@@ -547,33 +556,68 @@ export default function MemberVisitHistory({ userId: propUserId }) {
               </Box>
             )}
 
-            {/* ✅ Leaflet map — replaces Google Maps TrackMap */}
+            {/* Map */}
             <Box sx={{
               borderRadius: "16px", overflow: "hidden", border: "1px solid #e2e8f0",
               height: fullscreen ? "70vh" : { xs: 300, sm: 400, lg: 460 },
               boxShadow: "0 4px 24px rgba(0,0,0,0.06)", transition: "height 0.3s ease",
               position: "relative",
             }}>
-              {/* Fullscreen toggle — kept exactly as before */}
-              <Box
-                onClick={() => setFullscreen(p => !p)}
-                sx={{
-                  position: "absolute", top: 50, right: 10, zIndex: 1000,
-                  bgcolor: "#fff", borderRadius: "10px", p: 0.75, cursor: "pointer",
-                  boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0",
-                  display: "flex", "&:hover": { bgcolor: "#f8fafc" },
-                }}
-              >
-                {fullscreen
-                  ? <FullscreenExit sx={{ fontSize: 18, color: "#374151" }} />
-                  : <Fullscreen    sx={{ fontSize: 18, color: "#374151" }} />}
-              </Box>
+
+              {/* ── Fullscreen toggle ── */}
+              <Tooltip title={fullscreen ? "Exit fullscreen" : "Fullscreen"} placement="left">
+                <Box
+                  onClick={() => setFullscreen(p => !p)}
+                  sx={{
+                    position: "absolute", top: 50, right: 10, zIndex: 1000,
+                    bgcolor: "#fff", borderRadius: "10px", p: 0.75, cursor: "pointer",
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0",
+                    display: "flex", "&:hover": { bgcolor: "#f8fafc" },
+                  }}
+                >
+                  {fullscreen
+                    ? <FullscreenExit sx={{ fontSize: 18, color: "#374151" }} />
+                    : <Fullscreen    sx={{ fontSize: 18, color: "#374151" }} />}
+                </Box>
+              </Tooltip>
+
+              {/* ── Locate Me button — flies map to current position on click ── */}
+              <Tooltip title="Go to my location" placement="left">
+                <Box
+                  onClick={handleLocateMe}
+                  sx={{
+                    position: "absolute",
+                    top: 96,           // sits directly below the fullscreen button
+                    right: 10,
+                    zIndex: 1000,
+                    bgcolor: locating ? PRIMARY : "#fff",
+                    borderRadius: "10px",
+                    p: 0.75,
+                    cursor: "pointer",
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+                    border: `1px solid ${locating ? PRIMARY : "#e2e8f0"}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all 0.2s",
+                    "&:hover": {
+                      bgcolor: locating ? PRIMARY : alpha(PRIMARY, 0.08),
+                      borderColor: PRIMARY,
+                    },
+                  }}
+                >
+                  {locating
+                    ? <CircularProgress size={18} sx={{ color: "#fff" }} />
+                    : <GpsFixed sx={{ fontSize: 18, color: PRIMARY }} />}
+                </Box>
+              </Tooltip>
 
               <LiveTrackingMap
                 isPunchedIn={isPunchedIn}
                 hasPunchedOut={hasPunchedOut}
                 userId={targetUserId}
                 height="100%"
+                locateTrigger={locateTrigger}   // ← NEW prop: map watches this and flies to current location
               />
             </Box>
 
