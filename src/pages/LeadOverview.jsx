@@ -833,16 +833,27 @@ const EditLeadModal = React.memo(({ open, onClose, lead, onSave, userRole }) => 
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validateForm()) return;
-    setLoading(true);
-    try {
-      const response = await fetchAPI(`/lead/updateLead/${lead._id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
-      if (response.success) { onSave(response.result); onClose(); }
-      else throw new Error(response.message || "Failed to update lead");
-    } catch (error) { setErrors({ submit: error.message }); }
-    finally { setLoading(false); }
-  };
+ const handleSubmit = async () => {
+  if (!validateForm()) return;
+  setLoading(true);
+  try {
+    const response = await fetchAPI(`/lead/updateLead/${lead._id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData),
+    });
+    if (response.success) {
+      onSave(response.result);
+      onClose();
+    } else {
+      throw new Error(response.message || 'Failed to update lead');
+    }
+  } catch (error) {
+    setErrors({ submit: error.message });
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleChange = (field) => (event) => {
     const value = event.target.value;
