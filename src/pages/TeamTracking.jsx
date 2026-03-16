@@ -14,7 +14,7 @@
   import axios from "axios";
   import { useNavigate } from "react-router-dom";
 
-  const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
+  const API = import.meta.env.VITE_API_URL || " http://localhost:9001";
   const PRIMARY = "#136dec";
 
   // ── Helpers ───────────────────────────────────────────────────────────────────

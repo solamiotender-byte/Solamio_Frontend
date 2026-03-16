@@ -40,7 +40,7 @@ L.Icon.Default.mergeOptions({
 });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const BASE_URL  = 'https://solar-backend-4bsb.onrender.com/api/v1';
+const BASE_URL  = ' http://localhost:9001/api/v1';
 const PRIMARY   = '#4569ea';
 const SECONDARY = '#1a237e';
 const SUCCESS   = '#4caf50';
@@ -241,6 +241,38 @@ export default function VisitDetails({ onClose, onSave }) {
     window.addEventListener('online',  on);
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
+  // ── Fetch today's punch-in address to show green banner ──────────────────
+  const [punchInAddress, setPunchInAddress] = useState(null);
+  const [punchInTime,    setPunchInTime]    = useState(null);
+
+  useEffect(() => {
+    const fetchPunchIn = async () => {
+      try {
+        const token =
+          localStorage.getItem('token') ||
+          localStorage.getItem('authToken') ||
+          localStorage.getItem('accessToken');
+        const today = new Date().toISOString().split('T')[0];
+        const res = await fetch(
+          `${BASE_URL}/attendance?startDate=${today}&endDate=${today}&limit=1`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = data?.data?.attendances || data?.result?.attendances || data?.data || [];
+        const att  = Array.isArray(list) ? list[0] : list;
+        if (att?.punchIn?.time && !att?.punchOut?.time) {
+          const addr = att.punchIn?.address;
+          setPunchInAddress(
+            typeof addr === 'string' ? addr : addr?.full || addr?.short || null
+          );
+          setPunchInTime(att.punchIn.time);
+        }
+      } catch (e) { console.warn('Punch-in fetch failed:', e.message); }
+    };
+    fetchPunchIn();
   }, []);
 
   // ── Reverse geocode via OpenStreetMap Nominatim ───────────────────────────
@@ -474,6 +506,51 @@ export default function VisitDetails({ onClose, onSave }) {
 
       {/* ── Body ───────────────────────────────────────────────────────── */}
       <Box sx={{ px: isMobile ? 2 : 3, maxWidth: 1200, mx: 'auto' }}>
+
+        {/* ── Green punch-in location banner ─────────────────────────────── */}
+        {punchInAddress && (
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            bgcolor: '#f0fdf4',
+            border: '1px solid #bbf7d0',
+            borderRadius: 3,
+            px: 2, py: 1.25,
+            mb: 2.5,
+          }}>
+            {/* Pulsing green dot */}
+            <Box sx={{
+              width: 9, height: 9, borderRadius: '50%', bgcolor: '#22c55e', flexShrink: 0,
+              animation: 'gp 1.5s ease-in-out infinite',
+              '@keyframes gp': { '0%,100%': { opacity: 1, transform: 'scale(1)' }, '50%': { opacity: 0.4, transform: 'scale(0.75)' } },
+            }} />
+            <LocationOn sx={{ fontSize: 15, color: '#16a34a', flexShrink: 0 }} />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{
+                fontSize: '0.78rem', fontWeight: 700, color: '#14532d',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {punchInAddress}
+              </Typography>
+              {punchInTime && (
+                <Typography sx={{ fontSize: '0.68rem', color: '#16a34a', mt: 0.15 }}>
+                  On duty since {new Date(punchInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Typography>
+              )}
+            </Box>
+            <Chip
+              label="On Duty"
+              size="small"
+              sx={{
+                height: 22, fontSize: '0.65rem', fontWeight: 800,
+                bgcolor: 'transparent',
+                border: '1px solid #86efac',
+                color: '#16a34a',
+                flexShrink: 0,
+              }}
+            />
+          </Box>
+        )}
+
         <Grid container spacing={isMobile ? 2 : 3}>
 
           {/* Left column */}
@@ -675,12 +752,20 @@ export default function VisitDetails({ onClose, onSave }) {
                     zoomControl={true}
                     scrollWheelZoom={false}
                   >
-                    {/* CartoDB Voyager — buildings, small roads, lanes, full detail */}
+                    {/* Google Satellite — full India coverage */}
                     <TileLayer
-                      attribution='\&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \&copy; <a href="https://carto.com/">CARTO</a>'
-                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                      maxZoom={20}
-                      subdomains="abcd"
+                      attribution='&copy; Google Maps'
+                      url="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+                      maxZoom={21}
+                      maxNativeZoom={21}
+                    />
+                    {/* Google hybrid labels overlay */}
+                    <TileLayer
+                      attribution=""
+                      url="https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}"
+                      maxZoom={21}
+                      maxNativeZoom={21}
+                      opacity={1}
                     />
 
                     {/* Fly map to GPS position when it arrives / refreshes */}

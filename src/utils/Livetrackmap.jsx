@@ -45,12 +45,28 @@ const redIcon = new L.Icon({
 });
 
 // ── Smoothly pan map to latest GPS fix (used during live tracking) ──────────
+// Only pans — never changes zoom level, so manual zoom always works.
+// Stops auto-panning entirely if user has manually dragged/zoomed the map.
 function RecenterMap({ lat, lng }) {
-  const map = useMap();
+  const map          = useMap();
+  const userMovedRef = useRef(false);
+
   useEffect(() => {
-    if (lat != null && lng != null)
-      map.setView([lat, lng], map.getZoom(), { animate: true });
+    // Once user drags or zooms manually, stop auto-recentering
+    const onDrag  = () => { userMovedRef.current = true; };
+    const onZoom  = () => { userMovedRef.current = true; };
+    map.on("dragstart", onDrag);
+    map.on("zoomstart", onZoom);
+    return () => { map.off("dragstart", onDrag); map.off("zoomstart", onZoom); };
+  }, [map]);
+
+  useEffect(() => {
+    if (lat != null && lng != null && !userMovedRef.current) {
+      // panTo only moves the centre — never touches zoom level
+      map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    }
   }, [lat, lng, map]);
+
   return null;
 }
 
@@ -101,30 +117,77 @@ export default function LiveTrackingMap({
   const [accuracy, setAccuracy] = useState(null);
   const [error,    setError]    = useState(null);
   const [sockAck,  setSockAck]  = useState(null);
+  const [totalKm,  setTotalKm]  = useState(0);   // total GPS km today from DB
   const { socket, connected }   = useSocket();
   const prevPunchedIn           = useRef(false);
   const prevPunchedOut          = useRef(false);
 
-  // ── Load today's saved trail from DB on mount ──────────────────────────────
+  // ── Load saved trail from DB on mount ────────────────────────────────────
+  // Fetches last 24 hours of GPS points and draws the saved red trail.
+  // Merges with any live points collected this session.
+  const savedTrailRef = useRef([]); // keeps saved points separate from live
+
   useEffect(() => {
     if (!userId) return;
-    const fetchToday = async () => {
+    const fetchTrail = async () => {
       try {
-        const res = await fetch(
-          `${API}/api/v1/location/today${userId ? `?salesmanId=${userId}` : ""}`,
-          { headers: { Authorization: `Bearer ${getToken()}` } }
-        );
+        // Build 24h window
+        const now   = new Date();
+        const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        const url = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
         if (!res.ok) return;
+
         const data = await res.json();
-        const pts  = data?.result || data?.data || [];
-        if (pts.length) {
-          setPoints(pts.map((p) => [p.lat, p.lng]));
+        const raw  = data?.result || data?.data || data?.points || [];
+
+        if (!raw.length) return;
+
+        // Clean: remove bad accuracy + impossible jumps
+        const cleaned = [];
+        for (const p of raw) {
+          if (!p.lat || !p.lng) continue;
+          if (p.accuracy && p.accuracy > 500) continue;
+          if (cleaned.length > 0) {
+            const prev = cleaned[cleaned.length - 1];
+            const R = 6371000;
+            const dLat = ((p.lat - prev[0]) * Math.PI) / 180;
+            const dLng = ((p.lng - prev[1]) * Math.PI) / 180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(prev[0]*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+            const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1000;
+            if (distKm > 5) continue;
+          }
+          // Check 24h expiry
+          if (p.time || p.createdAt || p.timestamp) {
+            const ptTime = new Date(p.time || p.createdAt || p.timestamp);
+            if (now - ptTime > 24 * 60 * 60 * 1000) continue; // older than 24h → skip
+          }
+          cleaned.push([p.lat, p.lng]);
         }
+
+        savedTrailRef.current = cleaned;
+        setPoints(cleaned);
+        console.log(`[LiveTrackingMap] ✅ Loaded ${cleaned.length} saved trail points`);
+
+        // ── Also fetch total km for today ──────────────────────────────────
+        try {
+          const kmRes = await fetch(
+            `${API}/api/v1/location/distance?salesmanId=${userId}`,
+            { headers: { Authorization: `Bearer ${getToken()}` } }
+          );
+          if (kmRes.ok) {
+            const kmData = await kmRes.json();
+            const km = kmData?.data?.totalKm ?? kmData?.result?.totalKm ?? kmData?.totalKm ?? 0;
+            setTotalKm(Math.round(km * 100) / 100);
+          }
+        } catch (e) { /* non-fatal */ }
+
       } catch (e) {
-        console.warn("[LiveTrackingMap] Could not load today's trail:", e.message);
+        console.warn("[LiveTrackingMap] Could not load trail:", e.message);
       }
     };
-    fetchToday();
+    fetchTrail();
   }, [userId]);
 
   // ── Start tracking when user punches in ────────────────────────────────────
@@ -137,19 +200,88 @@ export default function LiveTrackingMap({
     // Just punched in
     if (isPunchedIn && !hasPunchedOut && !wasIn) {
       startTracking((allPts) => {
-        const mapped = allPts.map((p) => [p.lat, p.lng]);
-        setPoints(mapped);
+        // Merge saved trail + new live points so line is always continuous
+        const liveMapped = allPts.map((p) => [p.lat, p.lng]);
+        const merged = [...savedTrailRef.current, ...liveMapped];
+        const deduped = merged.filter((pt, i) =>
+          i === 0 || pt[0] !== merged[i-1][0] || pt[1] !== merged[i-1][1]
+        );
+        setPoints(deduped);
         const last = allPts[allPts.length - 1];
         if (last) setAccuracy(last.accuracy);
+
+        // Calculate live running km from all points
+        let liveKm = 0;
+        for (let i = 1; i < allPts.length; i++) {
+          const prev = allPts[i - 1], cur = allPts[i];
+          const R = 6371;
+          const dLat = ((cur.lat - prev.lat) * Math.PI) / 180;
+          const dLng = ((cur.lng - prev.lng) * Math.PI) / 180;
+          const a = Math.sin(dLat/2)**2 + Math.cos(prev.lat*Math.PI/180)*Math.cos(cur.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+          const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          if (d <= 5) liveKm += d; // ignore bad jumps
+        }
+        // Add saved trail km to live km
+        setTotalKm(Math.round((liveKm) * 100) / 100);
+
         if (typeof onPointsChange === "function") onPointsChange(allPts);
       }, socket);
     }
 
-    // Just punched out
-    if (hasPunchedOut && !wasOut && isCurrentlyTracking()) {
-      stopTracking();
+    // Just punched out — stop tracking then reload full trail from DB
+    if (hasPunchedOut && !wasOut) {
+      if (isCurrentlyTracking()) stopTracking();
+
+      // Wait 2s for final flush to reach DB, then reload the complete saved trail
+      setTimeout(async () => {
+        if (!userId) return;
+        try {
+          const now   = new Date();
+          const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const url   = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
+          const res   = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+          if (!res.ok) return;
+          const data  = await res.json();
+          const raw   = data?.result || data?.data || data?.points || [];
+
+          const cleaned = [];
+          for (const p of raw) {
+            if (!p.lat || !p.lng) continue;
+            if (p.accuracy && p.accuracy > 500) continue;
+            if (cleaned.length > 0) {
+              const prev = cleaned[cleaned.length - 1];
+              const R = 6371000;
+              const dLat = ((p.lat - prev[0]) * Math.PI) / 180;
+              const dLng = ((p.lng - prev[1]) * Math.PI) / 180;
+              const a = Math.sin(dLat/2)**2 + Math.cos(prev[0]*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+              const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1000;
+              if (distKm > 5) continue;
+            }
+            cleaned.push([p.lat, p.lng]);
+          }
+
+          if (cleaned.length) {
+            savedTrailRef.current = cleaned;
+            setPoints(cleaned);
+            console.log(`[LiveTrackingMap] ✅ Reloaded ${cleaned.length} points after punch-out`);
+          }
+
+          // Also refresh km
+          const kmRes = await fetch(
+            `${API}/api/v1/location/distance?salesmanId=${userId}`,
+            { headers: { Authorization: `Bearer ${getToken()}` } }
+          );
+          if (kmRes.ok) {
+            const kmData = await kmRes.json();
+            const km = kmData?.data?.totalKm ?? kmData?.result?.totalKm ?? kmData?.totalKm ?? 0;
+            setTotalKm(Math.round(km * 100) / 100);
+          }
+        } catch (e) {
+          console.warn("[LiveTrackingMap] Reload after punch-out failed:", e.message);
+        }
+      }, 2000);
     }
-  }, [isPunchedIn, hasPunchedOut, socket]);
+  }, [isPunchedIn, hasPunchedOut, socket, userId]);
 
   // ── Poll local tracker every 5 s to keep map in sync ──────────────────────
   useEffect(() => {
@@ -157,7 +289,12 @@ export default function LiveTrackingMap({
     const t = setInterval(() => {
       const pts = getTrackPoints();
       if (pts.length) {
-        setPoints(pts.map((p) => [p.lat, p.lng]));
+        const liveMapped = pts.map((p) => [p.lat, p.lng]);
+        const merged = [...savedTrailRef.current, ...liveMapped];
+        const deduped = merged.filter((pt, i) =>
+          i === 0 || pt[0] !== merged[i-1][0] || pt[1] !== merged[i-1][1]
+        );
+        setPoints(deduped);
         const last = pts[pts.length - 1];
         if (last) setAccuracy(last.accuracy);
       }
@@ -271,15 +408,27 @@ export default function LiveTrackingMap({
         </div>
       )}
 
-      {/* ── Points count (bottom-left) ───────────────────────────────────── */}
+      {/* ── Route summary (bottom-left) — GPS points + total km ─────────── */}
       {points.length > 0 && (
         <div style={{
           position: "absolute", bottom: 10, left: 10, zIndex: 1000,
-          background: "rgba(255,255,255,0.95)", borderRadius: 8,
-          padding: "5px 12px", fontSize: 12, fontWeight: 700, color: "#0f172a",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.1)", pointerEvents: "none",
+          background: "rgba(255,255,255,0.97)", borderRadius: 10,
+          padding: "6px 14px", fontSize: 12, fontWeight: 700, color: "#0f172a",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.12)", pointerEvents: "none",
+          display: "flex", alignItems: "center", gap: 10,
+          border: "1px solid #e2e8f0",
         }}>
-          {points.length} GPS point{points.length !== 1 ? "s" : ""} recorded today
+          <span>
+            📍 {points.length} point{points.length !== 1 ? "s" : ""}
+          </span>
+          {totalKm > 0 && (
+            <>
+              <span style={{ color: "#e2e8f0" }}>|</span>
+              <span style={{ color: "#4569ea" }}>
+                🛣 {totalKm.toFixed(2)} km today
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -290,12 +439,20 @@ export default function LiveTrackingMap({
         style={{ height: "100%", width: "100%", borderRadius: "inherit" }}
         zoomControl
       >
-        {/* CartoDB Voyager — shows buildings, small lanes, footpaths, house detail */}
+        {/* Google Satellite — full coverage including rural India */}
         <TileLayer
-          attribution='\&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors \&copy; <a href="https://carto.com/">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          maxZoom={20}
-          subdomains="abcd"
+          attribution='&copy; Google Maps'
+          url="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+          maxZoom={21}
+          maxNativeZoom={21}
+        />
+        {/* Google hybrid labels — road names + place names on satellite */}
+        <TileLayer
+          attribution=""
+          url="https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}"
+          maxZoom={21}
+          maxNativeZoom={21}
+          opacity={1}
         />
 
         {/* Keep map centered on latest point while live tracking */}
