@@ -40,7 +40,7 @@ L.Icon.Default.mergeOptions({
 });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const BASE_URL  = ' http://localhost:9001/api/v1';
+const BASE_URL  = 'https://solar-backend-4bsb.onrender.com/api/v1';
 const PRIMARY   = '#4569ea';
 const SECONDARY = '#1a237e';
 const SUCCESS   = '#4caf50';

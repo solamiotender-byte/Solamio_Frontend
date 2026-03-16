@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 const SOCKET_URL =
-  import.meta.env.VITE_API_URL || " http://localhost:9001";
+  import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 
 // Module-level singleton — never opens two connections
 let globalSocket = null;

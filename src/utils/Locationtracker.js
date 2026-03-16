@@ -8,7 +8,7 @@
 // • Uses Nominatim reverse geocoding to auto-fill location name
 // • Won't create duplicate visits at the same spot within 30 minutes
 
-const API = import.meta.env.VITE_API_URL || " http://localhost:9001";
+const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 
 // ── Haversine distance in metres between two lat/lng points ──────────────────
 function distanceMetres(lat1, lng1, lat2, lng2) {
