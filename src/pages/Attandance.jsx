@@ -461,7 +461,7 @@ const saveBattery = async (userId, token) => {
     const percentage = Math.round(battery.level * 100);
     const isCharging = battery.charging;
 
-    console.log("💾 saveBattery — userId:", userId, "| %:", percentage, "| charging:", isCharging);
+    //console.log("💾 saveBattery — userId:", userId, "| %:", percentage, "| charging:", isCharging);
 
     await axios.post(
       `${API}/api/v1/battery/log`,
@@ -469,7 +469,7 @@ const saveBattery = async (userId, token) => {
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    console.log("✅ Battery saved successfully");
+    //console.log("✅ Battery saved successfully");
     return { percentage, isCharging }; // ← CRITICAL: must return this
   } catch (e) {
     console.error("❌ Battery save error:", e.message);

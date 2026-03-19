@@ -53,7 +53,7 @@ const Topbar = ({
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const { user, logout } = useAuth()
-  console.log("users11...", user)
+  //console.log("users11...", user)
 
   // Mock notifications
   useEffect(() => {

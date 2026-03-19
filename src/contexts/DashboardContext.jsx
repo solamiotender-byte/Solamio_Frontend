@@ -25,7 +25,7 @@ export const DashboardProvider = ({ children }) => {
       setError(null);
 
       const userRole = user?.role;
-      console.log('Fetching dashboard for role:', userRole);
+      //console.log('Fetching dashboard for role:', userRole);
 
       let endpoint;
       let requestBody = {};
@@ -53,7 +53,7 @@ export const DashboardProvider = ({ children }) => {
         method: "GET"
       });
 
-      console.log('Dashboard API response:', response);
+      //console.log('Dashboard API response:', response);
 
       if (response?.success) {
         const dashboardResult = response.result;

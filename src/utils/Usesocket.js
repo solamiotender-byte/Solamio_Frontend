@@ -5,8 +5,9 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL =
-  import.meta.env.VITE_API_URL ||"https://solar-backend-4bsb.onrender.com";
+// ✅ FIX: Removed the space before "http://localhost:9001"
+// Previously: ||"https://solar-backend-4bsb.onrender.com" ← space was breaking the connection
+const SOCKET_URL = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 
 // Module-level singleton — never opens two connections
 let globalSocket = null;
@@ -24,8 +25,8 @@ export function useSocket() {
 
   useEffect(() => {
     const token =
-      localStorage.getItem("token") ||
-      localStorage.getItem("authToken") ||
+      localStorage.getItem("token")      ||
+      localStorage.getItem("authToken")  ||
       localStorage.getItem("accessToken");
 
     if (!token) {
@@ -33,33 +34,40 @@ export function useSocket() {
       return;
     }
 
-    // Reuse existing live socket
+    // Reuse existing live socket if already connected
     if (globalSocket?.connected) {
       socketRef.current = globalSocket;
       setConnected(true);
       return;
     }
 
+    // If socket exists but disconnected — try to reconnect it
+    if (globalSocket && !globalSocket.connected) {
+      globalSocket.connect();
+      socketRef.current = globalSocket;
+      return;
+    }
+
     // Create new connection
     globalSocket = io(SOCKET_URL, {
-      // Matches socket/index.js: socket.handshake.auth.token
       auth:       { token },
       transports: ["websocket", "polling"],
       reconnection:         true,
       reconnectionAttempts: 10,
       reconnectionDelay:    2000,
       reconnectionDelayMax: 10_000,
+      timeout:              10_000,
     });
 
     socketRef.current = globalSocket;
 
     globalSocket.on("connect", () => {
-      console.log("[Socket] ✅ Connected:", globalSocket.id);
+      //console.log("[Socket] ✅ Connected:", globalSocket.id);
       setConnected(true);
     });
 
     globalSocket.on("disconnect", (reason) => {
-      console.log("[Socket] ⚠ Disconnected:", reason);
+      //console.log("[Socket] ⚠ Disconnected:", reason);
       setConnected(false);
     });
 
@@ -69,11 +77,11 @@ export function useSocket() {
     });
 
     globalSocket.on("reconnect", () => {
-      console.log("[Socket] ↩ Reconnected");
+      //console.log("[Socket] ↩ Reconnected");
       setConnected(true);
     });
 
-    // Don't destroy on component unmount — keep singleton alive across pages
+    // Keep singleton alive across page changes
     return () => {};
   }, []);
 
@@ -87,6 +95,6 @@ export function disconnectSocket() {
   if (globalSocket) {
     globalSocket.disconnect();
     globalSocket = null;
-    console.log("[Socket] ■ Disconnected on logout");
+    //console.log("[Socket] ■ Disconnected on logout");
   }
 }

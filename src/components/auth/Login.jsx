@@ -470,10 +470,10 @@ const Login = () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     try {
-      console.log("Calling login with:", formData.email);
+      //console.log("Calling login with:", formData.email);
 
       const result = await login(formData.email, formData.password);
-      console.log("Login result:", result);
+      //console.log("Login result:", result);
 
       if (result?.success) {
         setAttemptCount(0);
@@ -484,7 +484,7 @@ const Login = () => {
         const userData = result.user;
         const userRole = userData?.role;
 
-        console.log("User role after login:", userRole);
+        //console.log("User role after login:", userRole);
 
         if (!userRole) {
           throw new Error("User role not found in login response");

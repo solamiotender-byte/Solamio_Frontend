@@ -203,7 +203,7 @@ export function startTracking(onPoint = null, socket = null) {
     window.dispatchEvent(new CustomEvent("dwellInfoResponse", { detail: { mins } }));
   });
 
-  console.log("[Tracker] ▶ Started");
+  //console.log("[Tracker] ▶ Started");
 }
 
 /**
@@ -252,7 +252,7 @@ async function handleAutoVisit(pt) {
 
     // ✅ Stayed 10+ min → create visit, pass actual dwell time
     const dwellMins = Math.round(dwellMs / 60000);
-    console.log(`[AutoVisit] Stopped for ${dwellMins} min — creating visit…`);
+    //console.log(`[AutoVisit] Stopped for ${dwellMins} min — creating visit…`);
     await createAutoVisit(dwellAnchor.lat, dwellAnchor.lng, dwellMins);
 
     // After creating, reset anchor so if they stay even longer it won't re-trigger
@@ -306,7 +306,7 @@ async function createAutoVisit(lat, lng, dwellMins = 10) {
     // Clean entries older than 2 hours
     recentVisitSpots = recentVisitSpots.filter(s => Date.now() - s.time < 2 * 60 * 60 * 1000);
 
-    console.log(`[AutoVisit] ✅ Created: "${locationName}"`);
+    //console.log(`[AutoVisit] ✅ Created: "${locationName}"`);
 
     // Fire DOM event → UI shows toast + refreshes visit list
     window.dispatchEvent(new CustomEvent("autoVisitCreated", {
@@ -348,7 +348,7 @@ export function stopTracking() {
   dwellAnchor      = null;
   recentVisitSpots = [];
 
-  console.log("[Tracker] ■ Stopped");
+  //console.log("[Tracker] ■ Stopped");
 }
 
 /** Returns a snapshot of all points collected this session */
@@ -392,7 +392,7 @@ async function flushBuffer() {
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    console.log(`[Tracker] ✅ Flushed ${points.length} point(s) to DB`);
+    //console.log(`[Tracker] ✅ Flushed ${points.length} point(s) to DB`);
   } catch (err) {
     buffer = [...points, ...buffer];
     console.warn("[Tracker] ⚠ Flush failed, re-queued:", err.message);

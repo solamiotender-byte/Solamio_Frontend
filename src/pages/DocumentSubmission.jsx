@@ -3168,7 +3168,7 @@ export default function DocumentSubmissionPage() {
         `/lead/DocumentSummary${params.toString() ? `?${params.toString()}` : ""}`,
       );
 
-      console.log("document data...", response);
+      //console.log("document data...", response);
 
       if (response?.success) {
         const data = response.result || {};
@@ -3208,9 +3208,7 @@ export default function DocumentSubmissionPage() {
         }
         // Head_office sees all — no filter applied
 
-        console.log(
-          `Fetched ${rawDocuments.length} documents for role: ${userRole}`,
-        );
+        
 
         const totalDocuments = rawDocuments.length;
         const submittedDocuments = rawDocuments.filter(
@@ -3371,7 +3369,7 @@ export default function DocumentSubmissionPage() {
   }, [isMobile]);
 
   useEffect(() => {
-    console.log("Current documents count:", documentsData.documents.length);
+    //console.log("Current documents count:", documentsData.documents.length);
   }, [documentsData.documents]);
 
   // Memoized Computed Values

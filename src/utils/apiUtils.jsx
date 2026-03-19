@@ -30,7 +30,7 @@ export const authFetch = async (url, options = {}) => {
   };
 
   // Log for debugging
-  console.log('AuthFetch Request:', {
+  //console.log('AuthFetch Request:', {
     url,
     method: options.method || 'GET',
     headers: headers,

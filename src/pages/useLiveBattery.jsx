@@ -27,7 +27,7 @@ export const useLiveBattery = (userId, token) => {
         { userId, percentage: pct, isCharging: charging, deviceInfo },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      console.log(`🔋 Battery synced: ${pct}% | Charging: ${charging}`);
+      //console.log(`🔋 Battery synced: ${pct}% | Charging: ${charging}`);
     } catch (e) {
       console.warn("🔋 Battery sync failed (non-critical):", e.message);
     } finally {
@@ -39,7 +39,7 @@ export const useLiveBattery = (userId, token) => {
   const initBattery = useCallback(async () => {
     if (!("getBattery" in navigator)) {
       setSupported(false);
-      console.log("🔋 Battery API not supported on this browser/device");
+      //console.log("🔋 Battery API not supported on this browser/device");
       return;
     }
 
@@ -61,7 +61,7 @@ export const useLiveBattery = (userId, token) => {
         const newPct = Math.round(battery.level * 100);
         setPercentage(newPct);
         await saveToBackend(newPct, battery.charging);
-        console.log(`🔋 Level changed: ${newPct}%`);
+        //console.log(`🔋 Level changed: ${newPct}%`);
       };
 
       battery.onchargingchange = async () => {
@@ -69,7 +69,7 @@ export const useLiveBattery = (userId, token) => {
         setIsCharging(battery.charging);
         setPercentage(newPct);
         await saveToBackend(newPct, battery.charging);
-        console.log(`🔋 Charging changed: ${battery.charging}`);
+        //console.log(`🔋 Charging changed: ${battery.charging}`);
       };
 
     } catch (e) {
@@ -106,7 +106,7 @@ export const useLiveBattery = (userId, token) => {
       batteryRef.current.onchargingchange = null;
       batteryRef.current = null;
     }
-    console.log("🔋 Battery tracking stopped");
+    //console.log("🔋 Battery tracking stopped");
   }, []);
 
   // ── Cleanup on unmount ────────────────────────────────────────────────────

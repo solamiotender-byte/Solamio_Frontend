@@ -1,109 +1,59 @@
-// components/LiveTrackingMap.jsx
-// USER side — Leaflet map that tracks their own GPS trail.
-// • Starts / stops tracking based on isPunchedIn prop
-// • Sends live points via socket → location:update (admin sees instantly)
-// • Flushes to REST /api/v1/location/track/bulk every 30 s (offline backup)
-// • Loads today's existing trail from GET /api/v1/location/today on mount
-// • locateTrigger prop: increment it from parent to fly+zoom to current GPS position
+// utils/LiveTrackingMap.jsx
+// USER side — Google Maps showing the GPS red trail after punch-in.
+// NO LEAFLET — pure Google Maps JavaScript API.
+//
+// HOW IT WORKS:
+//   • On mount → loads today's saved red marks from DB (10h TTL window)
+//   • On punch-in → starts GPS tracking, draws live red trail on map
+//   • Every new GPS point → red dot + extends red polyline on map
+//   • On punch-out → stops tracking, reloads final trail from DB
+//   • Admin can see full red trail any time within the 10-hour window
+//   • locateTrigger prop → flies map to current device GPS position
 
-import { useEffect, useState, useRef } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useRef, useState } from "react";
 import {
   startTracking,
   stopTracking,
   getTrackPoints,
   isCurrentlyTracking,
-} from "../utils/Locationtracker";
-import { useSocket } from "../utils/Usesocket.js";
+} from "./Locationtracker";
+import { useSocket } from "./Usesocket.js";
 
-const API = "https://solar-backend-4bsb.onrender.com";
+const API    = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
+const GKEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
+const TTL_MS = 10 * 60 * 60 * 1000; // 10 hours — matches backend TTL
+
 const getToken = () =>
-  localStorage.getItem("token") ||
-  localStorage.getItem("authToken") ||
+  localStorage.getItem("token")      ||
+  localStorage.getItem("authToken")  ||
   localStorage.getItem("accessToken") || "";
 
-// ── Fix Leaflet marker icons broken by Vite/Webpack ────────────────────────
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl:       "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl:     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
-
-const greenIcon = new L.Icon({
-  iconUrl:     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",
-  shadowUrl:   "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  iconSize:    [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41],
-});
-
-const redIcon = new L.Icon({
-  iconUrl:     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
-  shadowUrl:   "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  iconSize:    [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41],
-});
-
-// ── Smoothly pan map to latest GPS fix (used during live tracking) ──────────
-// Only pans — never changes zoom level, so manual zoom always works.
-// Stops auto-panning entirely if user has manually dragged/zoomed the map.
-function RecenterMap({ lat, lng }) {
-  const map          = useMap();
-  const userMovedRef = useRef(false);
-
-  useEffect(() => {
-    // Once user drags or zooms manually, stop auto-recentering
-    const onDrag  = () => { userMovedRef.current = true; };
-    const onZoom  = () => { userMovedRef.current = true; };
-    map.on("dragstart", onDrag);
-    map.on("zoomstart", onZoom);
-    return () => { map.off("dragstart", onDrag); map.off("zoomstart", onZoom); };
-  }, [map]);
-
-  useEffect(() => {
-    if (lat != null && lng != null && !userMovedRef.current) {
-      // panTo only moves the centre — never touches zoom level
-      map.panTo([lat, lng], { animate: true, duration: 0.5 });
-    }
-  }, [lat, lng, map]);
-
-  return null;
-}
-
-// ── Fly AND zoom to current device GPS position when trigger increments ──────
-// This is what the "Locate Me" button in MemberVisitHistory triggers.
-// It always fetches a fresh GPS fix and flies to it at zoom level 17.
-function FlyToCurrentLocation({ trigger }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!trigger) return;           // skip on initial mount (trigger starts at 0)
-    if (!navigator.geolocation) return;
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        map.flyTo(
-          [pos.coords.latitude, pos.coords.longitude],
-          17,                       // zoom level 17 = street level, no manual zoom needed
-          { duration: 1.5, easeLinearity: 0.25 }
-        );
-      },
-      (err) => console.warn("[LocateMe] GPS error:", err),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  }, [trigger]);                    // re-runs every time locateTrigger increments
-  return null;
+// ── Load Google Maps script once (singleton) ──────────────────────────────────
+let gmapsPromise = null;
+function loadGoogleMaps() {
+  if (window.google?.maps) return Promise.resolve();
+  if (gmapsPromise) return gmapsPromise;
+  gmapsPromise = new Promise((resolve, reject) => {
+    const script   = document.createElement("script");
+    script.src     = `https://maps.googleapis.com/maps/api/js?key=${GKEY}`;
+    script.async   = true;
+    script.onload  = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+  return gmapsPromise;
 }
 
 /**
- * LiveTrackingMap — USER side
+ * LiveTrackingMap — Google Maps version
  *
  * Props:
- *   isPunchedIn    {boolean}    true while user is on duty
- *   hasPunchedOut  {boolean}    true once user has ended the day
- *   userId         {string}     current user's _id (to load today's trail)
- *   height         {string}     CSS height  (default "400px")
- *   locateTrigger  {number}     increment this from the parent to fly+zoom to current location
- *   onPointsChange {Function}   optional callback(allPoints[])
+ *   isPunchedIn    {boolean}  true while user is on duty
+ *   hasPunchedOut  {boolean}  true once user ended the day
+ *   userId         {string}   user's _id (to load today's red trail from DB)
+ *   height         {string}   CSS height (default "400px")
+ *   locateTrigger  {number}   increment to fly map to current GPS position
+ *   onPointsChange {Function} optional callback(allPoints[]) on each new point
  */
 export default function LiveTrackingMap({
   isPunchedIn    = false,
@@ -113,27 +63,229 @@ export default function LiveTrackingMap({
   locateTrigger  = 0,
   onPointsChange,
 }) {
-  const [points,   setPoints]   = useState([]); // [[lat, lng], ...]
-  const [accuracy, setAccuracy] = useState(null);
-  const [error,    setError]    = useState(null);
-  const [sockAck,  setSockAck]  = useState(null);
-  const [totalKm,  setTotalKm]  = useState(0);   // total GPS km today from DB
-  const { socket, connected }   = useSocket();
-  const prevPunchedIn           = useRef(false);
-  const prevPunchedOut          = useRef(false);
+  const mapDivRef   = useRef(null);  // DOM div for Google Map
+  const gMapRef     = useRef(null);  // google.maps.Map instance
+  const polyRef     = useRef(null);  // red Polyline
+  const startMarker = useRef(null);  // green start marker
+  const liveMarker  = useRef(null);  // red pulsing current-position marker
+  const dotsRef     = useRef([]);    // intermediate red CircleMarkers (dots)
+  const savedPtsRef = useRef([]);    // { lat, lng }[] loaded from DB
+  const mapReady    = useRef(false);
 
-  // ── Load saved trail from DB on mount ────────────────────────────────────
-  // Fetches last 24 hours of GPS points and draws the saved red trail.
-  // Merges with any live points collected this session.
-  const savedTrailRef = useRef([]); // keeps saved points separate from live
+  const [mapLoaded,  setMapLoaded]  = useState(false);
+  const [accuracy,   setAccuracy]   = useState(null);
+  const [sockAck,    setSockAck]    = useState(null);
+  const [error,      setError]      = useState(null);
+  const [totalKm,    setTotalKm]    = useState(0);
+  const [pointCount, setPointCount] = useState(0);
 
+  const prevPunchedIn  = useRef(false);
+  const prevPunchedOut = useRef(false);
+
+  const { socket, connected } = useSocket();
+
+  const isLive = isPunchedIn && !hasPunchedOut;
+
+  // ── Initialize Google Map ────────────────────────────────────────────────────
   useEffect(() => {
+    loadGoogleMaps()
+      .then(() => {
+        if (!mapDivRef.current || gMapRef.current) return;
+
+        const map = new window.google.maps.Map(mapDivRef.current, {
+          center:           { lat: 20.2961, lng: 85.8245 }, // Bhubaneswar default
+          zoom:             6,
+          mapTypeId:        "roadmap",
+          disableDefaultUI: false,
+          zoomControl:      true,
+          streetViewControl: false,
+          mapTypeControl:   true,
+          fullscreenControl: false,
+          styles: [
+            { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+          ],
+        });
+
+        gMapRef.current = map;
+        mapReady.current = true;
+        setMapLoaded(true);
+      })
+      .catch((e) => {
+        console.error("[LiveTrackingMap] Google Maps load failed:", e);
+        setError("Google Maps failed to load. Check your API key.");
+      });
+  }, []);
+
+  // ── Helper: draw full trail on Google Map ────────────────────────────────────
+  // Called whenever points change (new live point or DB reload).
+  function drawTrail(points) {
+    if (!gMapRef.current || !mapReady.current) return;
+    const G = window.google.maps;
+
+    // ── Red polyline ──────────────────────────────────────────────────────────
+    if (polyRef.current) {
+      polyRef.current.setMap(null);
+    }
+    if (points.length >= 2) {
+      polyRef.current = new G.Polyline({
+        path:          points.map(p => ({ lat: p.lat, lng: p.lng })),
+        geodesic:      true,
+        strokeColor:   "#ef4444",   // red
+        strokeOpacity: 0.9,
+        strokeWeight:  4,
+        map:           gMapRef.current,
+        // Direction arrows on the trail
+        icons: [{
+          icon: {
+            path:        G.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale:       3,
+            strokeColor: "#ef4444",
+            fillColor:   "#ef4444",
+            fillOpacity: 1,
+          },
+          offset: "50%",
+          repeat: "100px",
+        }],
+      });
+    }
+
+    // ── Green start marker ────────────────────────────────────────────────────
+    if (startMarker.current) startMarker.current.setMap(null);
+    if (points.length > 0) {
+      startMarker.current = new G.Marker({
+        position: { lat: points[0].lat, lng: points[0].lng },
+        map:      gMapRef.current,
+        title:    "Start",
+        zIndex:   10,
+        icon: {
+          path:        G.SymbolPath.CIRCLE,
+          scale:       10,
+          fillColor:   "#22c55e",   // green
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 3,
+        },
+      });
+    }
+
+    // ── Intermediate red dots (every 4th point) ───────────────────────────────
+    // These are the individual "red marks" the admin sees on the trail.
+    dotsRef.current.forEach(d => d.setMap(null));
+    dotsRef.current = [];
+    points.forEach((pt, i) => {
+      if (i === 0 || i === points.length - 1) return; // skip start & end
+      if (i % 4 !== 0) return; // every 4th point
+      const dot = new G.Marker({
+        position: { lat: pt.lat, lng: pt.lng },
+        map:      gMapRef.current,
+        zIndex:   5,
+        icon: {
+          path:        G.SymbolPath.CIRCLE,
+          scale:       5,
+          fillColor:   "#ef4444",
+          fillOpacity: 0.85,
+          strokeColor: "#ffffff",
+          strokeWeight: 1,
+        },
+      });
+      dotsRef.current.push(dot);
+    });
+
+    // ── Live pulsing marker (current position) ────────────────────────────────
+    if (liveMarker.current) liveMarker.current.setMap(null);
+    const last = points[points.length - 1];
+    if (last && isLive) {
+      liveMarker.current = new G.Marker({
+        position: { lat: last.lat, lng: last.lng },
+        map:      gMapRef.current,
+        title:    "Current Location",
+        zIndex:   20,
+        icon: {
+          path:        G.SymbolPath.CIRCLE,
+          scale:       10,
+          fillColor:   "#ef4444",
+          fillOpacity: 1,
+          strokeColor: "rgba(239,68,68,0.4)",
+          strokeWeight: 12,
+        },
+      });
+
+      // Show info window briefly
+      const info = new G.InfoWindow({
+        content:        `<div style="font-family:sans-serif;font-size:12px;font-weight:700;color:#0f172a;padding:2px 6px">📍 Current Location</div>`,
+        disableAutoPan: true,
+      });
+      info.open(gMapRef.current, liveMarker.current);
+      setTimeout(() => info.close(), 3000);
+    }
+
+    // ── Fit map bounds to show all points ─────────────────────────────────────
+    if (points.length >= 2) {
+      const bounds = new G.LatLngBounds();
+      points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
+      gMapRef.current.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+    } else if (points.length === 1) {
+      gMapRef.current.setCenter({ lat: points[0].lat, lng: points[0].lng });
+      gMapRef.current.setZoom(16);
+    }
+
+    setPointCount(points.length);
+  }
+
+  // ── Helper: clean trail points (remove expired + bad GPS) ────────────────────
+  function cleanPoints(raw) {
+    const now     = Date.now();
+    const cleaned = [];
+
+    for (const p of raw) {
+      if (!p.lat || !p.lng) continue;
+      if (p.accuracy && p.accuracy > 500) continue;
+
+      // Skip points older than 10 hours (matches backend TTL)
+      const ptTime = p.recordedAt || p.time || p.createdAt || p.timestamp;
+      if (ptTime && now - new Date(ptTime).getTime() > TTL_MS) continue;
+
+      // Skip impossible GPS jumps > 5 km
+      if (cleaned.length > 0) {
+        const prev   = cleaned[cleaned.length - 1];
+        const R      = 6371;
+        const dLat   = ((p.lat - prev.lat) * Math.PI) / 180;
+        const dLng   = ((p.lng - prev.lng) * Math.PI) / 180;
+        const a      = Math.sin(dLat/2)**2 + Math.cos(prev.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+        const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        if (distKm > 5) continue;
+      }
+
+      cleaned.push({ lat: p.lat, lng: p.lng });
+    }
+
+    return cleaned;
+  }
+
+  // ── Fetch total km from backend ───────────────────────────────────────────────
+  async function fetchTotalKm() {
     if (!userId) return;
+    try {
+      const res = await fetch(
+        `${API}/api/v1/location/distance?salesmanId=${userId}`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const km   = data?.data?.totalKm ?? data?.result?.totalKm ?? data?.totalKm ?? 0;
+      setTotalKm(Math.round(km * 100) / 100);
+    } catch { /* non-fatal */ }
+  }
+
+  // ── Load saved red trail from DB on mount ─────────────────────────────────────
+  // Uses 10-hour window to exactly match the backend TTL.
+  useEffect(() => {
+    if (!userId || !mapLoaded) return;
+
     const fetchTrail = async () => {
       try {
-        // Build 24h window
         const now   = new Date();
-        const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const since = new Date(now.getTime() - TTL_MS); // 10h window
 
         const url = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
         const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
@@ -141,175 +293,123 @@ export default function LiveTrackingMap({
 
         const data = await res.json();
         const raw  = data?.result || data?.data || data?.points || [];
-
         if (!raw.length) return;
 
-        // Clean: remove bad accuracy + impossible jumps
-        const cleaned = [];
-        for (const p of raw) {
-          if (!p.lat || !p.lng) continue;
-          if (p.accuracy && p.accuracy > 500) continue;
-          if (cleaned.length > 0) {
-            const prev = cleaned[cleaned.length - 1];
-            const R = 6371000;
-            const dLat = ((p.lat - prev[0]) * Math.PI) / 180;
-            const dLng = ((p.lng - prev[1]) * Math.PI) / 180;
-            const a = Math.sin(dLat/2)**2 + Math.cos(prev[0]*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-            const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1000;
-            if (distKm > 5) continue;
-          }
-          // Check 24h expiry
-          if (p.time || p.createdAt || p.timestamp) {
-            const ptTime = new Date(p.time || p.createdAt || p.timestamp);
-            if (now - ptTime > 24 * 60 * 60 * 1000) continue; // older than 24h → skip
-          }
-          cleaned.push([p.lat, p.lng]);
-        }
+        const cleaned = cleanPoints(raw);
+        savedPtsRef.current = cleaned;
+        drawTrail(cleaned);
+        //console.log(`[LiveTrackingMap] ✅ Loaded ${cleaned.length} red marks from DB`);
 
-        savedTrailRef.current = cleaned;
-        setPoints(cleaned);
-        console.log(`[LiveTrackingMap] ✅ Loaded ${cleaned.length} saved trail points`);
-
-        // ── Also fetch total km for today ──────────────────────────────────
-        try {
-          const kmRes = await fetch(
-            `${API}/api/v1/location/distance?salesmanId=${userId}`,
-            { headers: { Authorization: `Bearer ${getToken()}` } }
-          );
-          if (kmRes.ok) {
-            const kmData = await kmRes.json();
-            const km = kmData?.data?.totalKm ?? kmData?.result?.totalKm ?? kmData?.totalKm ?? 0;
-            setTotalKm(Math.round(km * 100) / 100);
-          }
-        } catch (e) { /* non-fatal */ }
-
+        await fetchTotalKm();
       } catch (e) {
-        console.warn("[LiveTrackingMap] Could not load trail:", e.message);
+        console.warn("[LiveTrackingMap] Trail load failed:", e.message);
       }
     };
-    fetchTrail();
-  }, [userId]);
 
-  // ── Start tracking when user punches in ────────────────────────────────────
+    fetchTrail();
+  }, [userId, mapLoaded]);
+
+  // ── Start / stop tracking on punch-in / punch-out ────────────────────────────
   useEffect(() => {
+    if (!mapLoaded) return;
+
     const wasIn  = prevPunchedIn.current;
     const wasOut = prevPunchedOut.current;
     prevPunchedIn.current  = isPunchedIn;
     prevPunchedOut.current = hasPunchedOut;
 
-    // Just punched in
+    // Just punched in — start GPS tracking
     if (isPunchedIn && !hasPunchedOut && !wasIn) {
       startTracking((allPts) => {
-        // Merge saved trail + new live points so line is always continuous
-        const liveMapped = allPts.map((p) => [p.lat, p.lng]);
-        const merged = [...savedTrailRef.current, ...liveMapped];
+        // Merge saved DB trail + new live points → continuous red line
+        const livePts = allPts.map(p => ({ lat: p.lat, lng: p.lng }));
+        const merged  = [...savedPtsRef.current, ...livePts];
+
+        // Deduplicate adjacent identical points
         const deduped = merged.filter((pt, i) =>
-          i === 0 || pt[0] !== merged[i-1][0] || pt[1] !== merged[i-1][1]
+          i === 0 || pt.lat !== merged[i-1].lat || pt.lng !== merged[i-1].lng
         );
-        setPoints(deduped);
+
+        drawTrail(deduped);
+
         const last = allPts[allPts.length - 1];
         if (last) setAccuracy(last.accuracy);
 
-        // Calculate live running km from all points
+        // Live running km calculation
         let liveKm = 0;
         for (let i = 1; i < allPts.length; i++) {
-          const prev = allPts[i - 1], cur = allPts[i];
-          const R = 6371;
-          const dLat = ((cur.lat - prev.lat) * Math.PI) / 180;
-          const dLng = ((cur.lng - prev.lng) * Math.PI) / 180;
-          const a = Math.sin(dLat/2)**2 + Math.cos(prev.lat*Math.PI/180)*Math.cos(cur.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-          const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          if (d <= 5) liveKm += d; // ignore bad jumps
+          const p  = allPts[i], pr = allPts[i-1];
+          const R  = 6371;
+          const dL = ((p.lat - pr.lat) * Math.PI) / 180;
+          const dG = ((p.lng - pr.lng) * Math.PI) / 180;
+          const a  = Math.sin(dL/2)**2 + Math.cos(pr.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dG/2)**2;
+          const d  = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          if (d <= 5) liveKm += d;
         }
-        // Add saved trail km to live km
-        setTotalKm(Math.round((liveKm) * 100) / 100);
+        setTotalKm(Math.round(liveKm * 100) / 100);
 
         if (typeof onPointsChange === "function") onPointsChange(allPts);
       }, socket);
     }
 
-    // Just punched out — stop tracking then reload full trail from DB
+    // Just punched out — stop tracking, reload final trail from DB
     if (hasPunchedOut && !wasOut) {
       if (isCurrentlyTracking()) stopTracking();
 
-      // Wait 2s for final flush to reach DB, then reload the complete saved trail
+      // Wait 2s for final flush to reach DB
       setTimeout(async () => {
         if (!userId) return;
         try {
           const now   = new Date();
-          const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const since = new Date(now.getTime() - TTL_MS);
           const url   = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
           const res   = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
           if (!res.ok) return;
-          const data  = await res.json();
-          const raw   = data?.result || data?.data || data?.points || [];
 
-          const cleaned = [];
-          for (const p of raw) {
-            if (!p.lat || !p.lng) continue;
-            if (p.accuracy && p.accuracy > 500) continue;
-            if (cleaned.length > 0) {
-              const prev = cleaned[cleaned.length - 1];
-              const R = 6371000;
-              const dLat = ((p.lat - prev[0]) * Math.PI) / 180;
-              const dLng = ((p.lng - prev[1]) * Math.PI) / 180;
-              const a = Math.sin(dLat/2)**2 + Math.cos(prev[0]*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-              const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1000;
-              if (distKm > 5) continue;
-            }
-            cleaned.push([p.lat, p.lng]);
-          }
+          const data    = await res.json();
+          const raw     = data?.result || data?.data || data?.points || [];
+          const cleaned = cleanPoints(raw);
 
           if (cleaned.length) {
-            savedTrailRef.current = cleaned;
-            setPoints(cleaned);
-            console.log(`[LiveTrackingMap] ✅ Reloaded ${cleaned.length} points after punch-out`);
+            savedPtsRef.current = cleaned;
+            drawTrail(cleaned);
+            //console.log(`[LiveTrackingMap] ✅ Reloaded ${cleaned.length} red marks after punch-out`);
           }
 
-          // Also refresh km
-          const kmRes = await fetch(
-            `${API}/api/v1/location/distance?salesmanId=${userId}`,
-            { headers: { Authorization: `Bearer ${getToken()}` } }
-          );
-          if (kmRes.ok) {
-            const kmData = await kmRes.json();
-            const km = kmData?.data?.totalKm ?? kmData?.result?.totalKm ?? kmData?.totalKm ?? 0;
-            setTotalKm(Math.round(km * 100) / 100);
-          }
+          await fetchTotalKm();
         } catch (e) {
           console.warn("[LiveTrackingMap] Reload after punch-out failed:", e.message);
         }
       }, 2000);
     }
-  }, [isPunchedIn, hasPunchedOut, socket, userId]);
+  }, [isPunchedIn, hasPunchedOut, socket, mapLoaded]);
 
-  // ── Poll local tracker every 5 s to keep map in sync ──────────────────────
+  // ── Poll local tracker every 5s during live tracking ─────────────────────────
   useEffect(() => {
-    if (!isPunchedIn || hasPunchedOut) return;
+    if (!isPunchedIn || hasPunchedOut || !mapLoaded) return;
     const t = setInterval(() => {
       const pts = getTrackPoints();
-      if (pts.length) {
-        const liveMapped = pts.map((p) => [p.lat, p.lng]);
-        const merged = [...savedTrailRef.current, ...liveMapped];
-        const deduped = merged.filter((pt, i) =>
-          i === 0 || pt[0] !== merged[i-1][0] || pt[1] !== merged[i-1][1]
-        );
-        setPoints(deduped);
-        const last = pts[pts.length - 1];
-        if (last) setAccuracy(last.accuracy);
-      }
+      if (!pts.length) return;
+
+      const livePts = pts.map(p => ({ lat: p.lat, lng: p.lng }));
+      const merged  = [...savedPtsRef.current, ...livePts];
+      const deduped = merged.filter((pt, i) =>
+        i === 0 || pt.lat !== merged[i-1].lat || pt.lng !== merged[i-1].lng
+      );
+      drawTrail(deduped);
+
+      const last = pts[pts.length - 1];
+      if (last) setAccuracy(last.accuracy);
     }, 5_000);
     return () => clearInterval(t);
-  }, [isPunchedIn, hasPunchedOut]);
+  }, [isPunchedIn, hasPunchedOut, mapLoaded]);
 
-  // ── Stop tracking if component unmounts while still active ─────────────────
+  // ── Stop tracking on unmount ──────────────────────────────────────────────────
   useEffect(() => {
-    return () => {
-      if (isCurrentlyTracking()) stopTracking();
-    };
+    return () => { if (isCurrentlyTracking()) stopTracking(); };
   }, []);
 
-  // ── Listen for socket events from server ───────────────────────────────────
+  // ── Socket events ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!socket) return;
     const onAck   = (data) => setSockAck(data.timestamp);
@@ -322,11 +422,22 @@ export default function LiveTrackingMap({
     };
   }, [socket]);
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-  const defaultCenter = [20.2961, 85.8245]; // Bhubaneswar
-  const lastPoint     = points.length ? points[points.length - 1] : null;
-  const isLive        = isPunchedIn && !hasPunchedOut;
+  // ── Locate Me — fly map to current device GPS ─────────────────────────────────
+  useEffect(() => {
+    if (!locateTrigger || !gMapRef.current) return;
+    if (!navigator.geolocation) return;
 
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        gMapRef.current.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        gMapRef.current.setZoom(17);
+      },
+      (err) => console.warn("[LocateMe] GPS error:", err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }, [locateTrigger]);
+
+  // ── Accuracy helpers ──────────────────────────────────────────────────────────
   const accuracyColor =
     accuracy == null ? "#94a3b8"
     : accuracy <= 20 ? "#16a34a"
@@ -340,19 +451,47 @@ export default function LiveTrackingMap({
     :                  "Poor";
 
   const fmtTime = (iso) =>
-    iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
+    iso
+      ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : null;
 
   return (
     <div style={{ position: "relative", width: "100%", height, borderRadius: "inherit" }}>
 
-      {/* ── Live / Offline badge (top-center) ────────────────────────────── */}
+      {/* ── Map container ─────────────────────────────────────────────────── */}
+      <div
+        ref={mapDivRef}
+        style={{ width: "100%", height: "100%", borderRadius: "inherit" }}
+      />
+
+      {/* ── Loading overlay ───────────────────────────────────────────────── */}
+      {!mapLoaded && (
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", alignItems: "center",
+          justifyContent: "center", background: "#f8fafc", borderRadius: "inherit",
+          zIndex: 10,
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              width: 36, height: 36, border: "3px solid #e2e8f0",
+              borderTopColor: "#4569ea", borderRadius: "50%",
+              animation: "spin 0.8s linear infinite", margin: "0 auto 12px",
+            }} />
+            <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: 600 }}>
+              Loading Google Maps…
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Live / status badge (top-center) ─────────────────────────────── */}
       <div style={{
         position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)",
         zIndex: 1000, background: "rgba(255,255,255,0.97)",
-        borderRadius: 999, padding: "4px 14px",
+        borderRadius: 999, padding: "5px 16px",
         fontSize: 12, fontWeight: 700,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
-        display: "flex", alignItems: "center", gap: 6,
+        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+        display: "flex", alignItems: "center", gap: 7,
         border: `1px solid ${isLive ? "#bbf7d0" : hasPunchedOut ? "#fde68a" : "#e2e8f0"}`,
         color: isLive ? "#16a34a" : hasPunchedOut ? "#d97706" : "#94a3b8",
         pointerEvents: "none",
@@ -366,18 +505,17 @@ export default function LiveTrackingMap({
           ? `Live Tracking${connected ? "" : " (socket offline)"}`
           : hasPunchedOut
           ? "Day Completed"
-          : "Not Tracking — Punch in to start"}
+          : "Punch in to start tracking"}
       </div>
 
-      {/* ── GPS accuracy badge (top-right) ───────────────────────────────── */}
+      {/* ── GPS accuracy (top-right) ──────────────────────────────────────── */}
       {accuracy != null && (
         <div style={{
           position: "absolute", top: 10, right: 10, zIndex: 1000,
           background: "rgba(255,255,255,0.97)", borderRadius: 8,
           padding: "4px 10px", fontSize: 11, fontWeight: 700,
           boxShadow: "0 1px 6px rgba(0,0,0,0.1)",
-          color: accuracyColor,
-          border: `1px solid ${accuracyColor}40`,
+          color: accuracyColor, border: `1px solid ${accuracyColor}40`,
           pointerEvents: "none",
         }}>
           GPS ±{Math.round(accuracy)}m · {accuracyLabel}
@@ -401,15 +539,14 @@ export default function LiveTrackingMap({
         <div style={{
           position: "absolute", bottom: 40, left: 10, right: 10, zIndex: 1000,
           background: "#fee2e2", border: "1px solid #fecaca",
-          borderRadius: 8, padding: "8px 12px",
-          fontSize: 12, color: "#dc2626",
+          borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#dc2626",
         }}>
           ⚠ {error}
         </div>
       )}
 
-      {/* ── Route summary (bottom-left) — GPS points + total km ─────────── */}
-      {points.length > 0 && (
+      {/* ── Route summary (bottom-left) ───────────────────────────────────── */}
+      {pointCount > 0 && (
         <div style={{
           position: "absolute", bottom: 10, left: 10, zIndex: 1000,
           background: "rgba(255,255,255,0.97)", borderRadius: 10,
@@ -418,84 +555,25 @@ export default function LiveTrackingMap({
           display: "flex", alignItems: "center", gap: 10,
           border: "1px solid #e2e8f0",
         }}>
-          <span>
-            📍 {points.length} point{points.length !== 1 ? "s" : ""}
-          </span>
+          <span>📍 {pointCount} red mark{pointCount !== 1 ? "s" : ""}</span>
           {totalKm > 0 && (
             <>
               <span style={{ color: "#e2e8f0" }}>|</span>
-              <span style={{ color: "#4569ea" }}>
-                🛣 {totalKm.toFixed(2)} km today
-              </span>
+              <span style={{ color: "#4569ea" }}>🛣 {totalKm.toFixed(2)} km</span>
             </>
           )}
+          <span style={{ color: "#e2e8f0" }}>|</span>
+          <span style={{ color: "#f59e0b", fontSize: 10 }}>⏱ saves for 10h</span>
         </div>
       )}
-
-      {/* ── Map ──────────────────────────────────────────────────────────── */}
-      <MapContainer
-        center={lastPoint || defaultCenter}
-        zoom={lastPoint ? 15 : 6}
-        style={{ height: "100%", width: "100%", borderRadius: "inherit" }}
-        zoomControl
-      >
-        {/* Google Satellite — full coverage including rural India */}
-        <TileLayer
-          attribution='&copy; Google Maps'
-          url="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
-          maxZoom={21}
-          maxNativeZoom={21}
-        />
-        {/* Google hybrid labels — road names + place names on satellite */}
-        <TileLayer
-          attribution=""
-          url="https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}"
-          maxZoom={21}
-          maxNativeZoom={21}
-          opacity={1}
-        />
-
-        {/* Keep map centered on latest point while live tracking */}
-        {isLive && lastPoint && (
-          <RecenterMap lat={lastPoint[0]} lng={lastPoint[1]} />
-        )}
-
-        {/* ── Locate Me — flies to current GPS + zooms to level 17 ───────── */}
-        <FlyToCurrentLocation trigger={locateTrigger} />
-
-        {/* Start marker — green */}
-        {points.length > 0 && (
-          <Marker position={points[0]} icon={greenIcon}>
-            <Popup>
-              <strong>Start Point</strong>
-              <br />
-              {points[0][0].toFixed(5)}, {points[0][1].toFixed(5)}
-            </Popup>
-          </Marker>
-        )}
-
-        {/* Current position — red (only if moved from start) */}
-        {lastPoint && points.length > 1 && (
-          <Marker position={lastPoint} icon={redIcon}>
-            <Popup>
-              <strong>{isLive ? "Current Location" : "Last Known Location"}</strong>
-              <br />
-              {lastPoint[0].toFixed(5)}, {lastPoint[1].toFixed(5)}
-              {accuracy != null && <><br />Accuracy: ±{Math.round(accuracy)}m</>}
-            </Popup>
-          </Marker>
-        )}
-
-        {/* Red route polyline */}
-        {points.length > 1 && (
-          <Polyline positions={points} color="#ef4444" weight={4} opacity={0.85} />
-        )}
-      </MapContainer>
 
       <style>{`
         @keyframes livePulse {
           0%, 100% { opacity: 1; }
           50%       { opacity: 0.25; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>
