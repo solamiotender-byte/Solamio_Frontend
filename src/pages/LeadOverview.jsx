@@ -1390,7 +1390,7 @@ const LeadOverview = () => {
   const handleDeleteLeads = useCallback(async () => {
     try {
       if (!leadsToDelete || leadsToDelete.length === 0) { showSnackbar("No leads selected for deletion", "error"); return; }
-      const response = await fetch(`http://localhost:5000/api/lead/deleteLead`, { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ ids: leadsToDelete }) });
+      const response = await fetch(`https://solar-backend-4bsb.onrender.com/api/lead/deleteLead`, { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ ids: leadsToDelete }) });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       let data;
       try { data = await response.json(); } catch { throw new Error("Invalid response from server"); }
@@ -1402,7 +1402,7 @@ const LeadOverview = () => {
   const handleDeleteSingleLead = useCallback(async (leadId) => {
     try {
       if (!leadId) { showSnackbar("Invalid lead ID", "error"); return; }
-      const response = await fetch(`http://localhost:5000/api/lead/deleteLead`, { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ ids: [leadId] }) });
+      const response = await fetch(`https://solar-backend-4bsb.onrender.com/api/lead/deleteLead`, { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ ids: [leadId] }) });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       let data;
       try { data = await response.json(); } catch { throw new Error("Invalid response from server"); }
