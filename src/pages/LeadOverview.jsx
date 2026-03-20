@@ -833,27 +833,27 @@ const EditLeadModal = React.memo(({ open, onClose, lead, onSave, userRole }) => 
     return Object.keys(newErrors).length === 0;
   };
 
- const handleSubmit = async () => {
-  if (!validateForm()) return;
-  setLoading(true);
-  try {
-    const response = await fetchAPI(`/lead/updateLead/${lead._id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData),
-    });
-    if (response.success) {
-      onSave(response.result);
-      onClose();
-    } else {
-      throw new Error(response.message || 'Failed to update lead');
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+    setLoading(true);
+    try {
+      const response = await fetchAPI(`/lead/updateLead/${lead._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      if (response.success) {
+        onSave(response.result);
+        onClose();
+      } else {
+        throw new Error(response.message || "Failed to update lead");
+      }
+    } catch (error) {
+      setErrors({ submit: error.message });
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    setErrors({ submit: error.message });
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleChange = (field) => (event) => {
     const value = event.target.value;
@@ -1387,29 +1387,42 @@ const LeadOverview = () => {
   const handleAssignLead = useCallback(async () => { showSnackbar("Lead assigned successfully", "success"); await fetchLeads(); setSelectedLeads([]); setSelectAll(false); }, [fetchLeads, showSnackbar]);
   const handleBulkAssign = useCallback(async (assignData) => { showSnackbar(`${assignData.leadIds?.length || 0} leads assigned successfully`, "success"); setSelectedLeads([]); setSelectAll(false); await fetchLeads(); }, [fetchLeads, showSnackbar]);
 
-  const handleDeleteLeads = useCallback(async () => {
-    try {
-      if (!leadsToDelete || leadsToDelete.length === 0) { showSnackbar("No leads selected for deletion", "error"); return; }
-      const response = await fetch(`https://solar-backend-4bsb.onrender.com/api/lead/deleteLead`, { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ ids: leadsToDelete }) });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
-      let data;
-      try { data = await response.json(); } catch { throw new Error("Invalid response from server"); }
-      if (data.success) { showSnackbar(`${leadsToDelete.length} lead(s) deleted successfully`, "success"); setDeleteDialogOpen(false); setLeadsToDelete([]); setSelectedLeads([]); setSelectAll(false); await fetchLeads(); }
-      else throw new Error(data.message || "Failed to delete leads");
-    } catch (error) { showSnackbar(error.message || "Failed to delete leads", "error"); }
-  }, [fetchLeads, showSnackbar, leadsToDelete]);
+  // ✅ FIXED: Use fetchAPI instead of hardcoded fetch URL
+ const handleDeleteLeads = useCallback(async () => {
+  try {
+    if (!leadsToDelete || leadsToDelete.length === 0) {
+      showSnackbar("No leads selected for deletion", "error");
+      return;
+    }
+    for (const leadId of leadsToDelete) {
+      await fetchAPI(`/lead/deleteLead/${leadId}`, { method: "DELETE" });
+    }
+    showSnackbar(`${leadsToDelete.length} lead(s) deleted successfully`, "success");
+    setDeleteDialogOpen(false);
+    setLeadsToDelete([]);
+    setSelectedLeads([]);
+    setSelectAll(false);
+    await fetchLeads();
+  } catch (error) {
+    showSnackbar(error.message || "Failed to delete leads", "error");
+  }
+}, [fetchAPI, fetchLeads, showSnackbar, leadsToDelete]);
 
+  // ✅ FIXED: Use fetchAPI instead of hardcoded fetch URL
   const handleDeleteSingleLead = useCallback(async (leadId) => {
-    try {
-      if (!leadId) { showSnackbar("Invalid lead ID", "error"); return; }
-      const response = await fetch(`https://solar-backend-4bsb.onrender.com/api/lead/deleteLead`, { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ ids: [leadId] }) });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
-      let data;
-      try { data = await response.json(); } catch { throw new Error("Invalid response from server"); }
-      if (data.success) { showSnackbar("Lead deleted successfully", "success"); await fetchLeads(); }
-      else throw new Error(data.message || "Failed to delete lead");
-    } catch (error) { showSnackbar(error.message || "Failed to delete lead", "error"); }
-  }, [fetchLeads, showSnackbar]);
+  try {
+    if (!leadId) { showSnackbar("Invalid lead ID", "error"); return; }
+    const response = await fetchAPI(`/lead/deleteLead/${leadId}`, { method: "DELETE" });
+    if (response.success) {
+      showSnackbar("Lead deleted successfully", "success");
+      await fetchLeads();
+    } else {
+      throw new Error(response.message || "Failed to delete lead");
+    }
+  } catch (error) {
+    showSnackbar(error.message || "Failed to delete lead", "error");
+  }
+}, [fetchAPI, fetchLeads, showSnackbar]);
 
   const handleUpdateLead = useCallback(async () => { showSnackbar("Lead updated successfully", "success"); await fetchLeads(); }, [fetchLeads, showSnackbar]);
 
