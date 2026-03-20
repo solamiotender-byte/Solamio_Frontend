@@ -44,6 +44,10 @@ const WARNING   = "#f59e0b";
 
 const MANAGER_ROLES = ["Head_office", "ZSM", "ASM"];
 
+// Office start time for "late" detection (9:00 AM)
+const OFFICE_START_HOUR   = 9;
+const OFFICE_START_MINUTE = 0;
+
 const PERIOD_OPTIONS = [
   { value: "Today",      label: "Today"      },
   { value: "This Week",  label: "This Week"  },
@@ -52,11 +56,53 @@ const PERIOD_OPTIONS = [
 ];
 
 const STATUS_CONFIG = {
-  present: { bg: alpha(SUCCESS, 0.1), color: SUCCESS,      icon: <CheckCircle sx={{ fontSize: 14 }} />, label: "Present" },
-  absent:  { bg: alpha(DANGER,  0.1), color: DANGER,       icon: <ErrorIcon   sx={{ fontSize: 14 }} />, label: "Absent"  },
-  late:    { bg: alpha(WARNING, 0.1), color: WARNING,      icon: <Warning     sx={{ fontSize: 14 }} />, label: "Late"    },
-  leave:   { bg: alpha("#a855f7", 0.1), color: "#a855f7",  icon: <Person      sx={{ fontSize: 14 }} />, label: "Leave"   },
-  holiday: { bg: alpha("#3b82f6", 0.1), color: "#3b82f6",  icon: <CalendarToday sx={{ fontSize: 14 }} />, label: "Holiday" },
+  present: { bg: alpha(SUCCESS,    0.1), color: SUCCESS,    icon: <CheckCircle   sx={{ fontSize: 14 }} />, label: "Present" },
+  absent:  { bg: alpha(DANGER,     0.1), color: DANGER,     icon: <ErrorIcon     sx={{ fontSize: 14 }} />, label: "Absent"  },
+  late:    { bg: alpha(WARNING,    0.1), color: WARNING,     icon: <Warning       sx={{ fontSize: 14 }} />, label: "Late"    },
+  leave:   { bg: alpha("#a855f7",  0.1), color: "#a855f7",  icon: <Person        sx={{ fontSize: 14 }} />, label: "Leave"   },
+  holiday: { bg: alpha("#3b82f6",  0.1), color: "#3b82f6",  icon: <CalendarToday sx={{ fontSize: 14 }} />, label: "Holiday" },
+};
+
+// ─── Helper: decode creation date from MongoDB ObjectId ──────────────────────
+const getJoinDateFromObjectId = (objectId) => {
+  try {
+    const id = String(objectId || "").trim();
+    if (id.length < 8) return null;
+    const ts = parseInt(id.substring(0, 8), 16) * 1000;
+    if (isNaN(ts) || ts < 946684800000) return null; // sanity: after year 2000
+    const d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  } catch {
+    return null;
+  }
+};
+
+// ─── Helper: resolve calendar status for a day ───────────────────────────────
+// Rules:
+//   • Before join date (account creation) → no color (undefined)
+//   • Weekend / future                    → no color (undefined)
+//   • Has attendance record               → use record status (green/yellow/etc)
+//   • Past weekday, no record             → "absent" (red)
+//   • Today with no punch yet             → no color (undefined)
+const resolveCalendarStatus = (dateMs, att, todayMs, joinDateMs) => {
+  const d          = new Date(dateMs);
+  const isWeekend  = [0, 6].includes(d.getDay());
+  const isPast     = dateMs < todayMs;
+  const isFuture   = dateMs > todayMs;
+  const isBeforeJoin = dateMs < joinDateMs;
+
+  // No color: weekend, future, or before account was created
+  if (isWeekend || isFuture || isBeforeJoin) return undefined;
+
+  // Has attendance record — trust the backend status
+  if (att) return att.status || "present";
+
+  // Past weekday with no record → absent
+  if (isPast) return "absent";
+
+  // Today, not punched in yet → no color
+  return undefined;
 };
 
 // ─── useWorkTimer ─────────────────────────────────────────────────────────────
@@ -152,9 +198,73 @@ const StatCard = ({ icon: Icon, label, value, color = PRIMARY, sub, loading, ind
 // ─── CalCell ──────────────────────────────────────────────────────────────────
 const CalCell = ({ day, isSelected, isToday, isWeekend, status, onClick, isPrev }) => {
   const cfg = STATUS_CONFIG[status];
+
+  const statusBg = {
+    present: "#dcfce7",
+    late:    "#fef9c3",
+    absent:  "#fee2e2",
+    leave:   "#f3e8ff",
+    holiday: "#dbeafe",
+  };
+  const statusDot = {
+    present: SUCCESS,
+    late:    WARNING,
+    absent:  DANGER,
+    leave:   "#a855f7",
+    holiday: "#3b82f6",
+  };
+
   return (
-    <Box onClick={onClick} sx={{ height: { xs: 36, sm: 44 }, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2, cursor: isPrev ? "default" : "pointer", fontSize: { xs: "0.7rem", sm: "0.8rem" }, fontWeight: 600, transition: "all .18s ease", opacity: isPrev ? 0.2 : 1, userSelect: "none", bgcolor: isSelected ? PRIMARY : isToday ? alpha(PRIMARY, 0.12) : cfg ? cfg.bg : "transparent", color: isSelected ? "#fff" : isToday ? PRIMARY : cfg ? cfg.color : isWeekend ? alpha("#000", 0.3) : "text.primary", border: isToday && !isSelected ? `2px solid ${PRIMARY}` : "2px solid transparent", "&:hover": !isPrev ? { bgcolor: isSelected ? PRIMARY : alpha(PRIMARY, 0.1), transform: "scale(1.08)" } : {} }}>
+    <Box
+      onClick={onClick}
+      sx={{
+        height: { xs: 36, sm: 44 },
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 2,
+        cursor: isPrev ? "default" : "pointer",
+        fontSize: { xs: "0.7rem", sm: "0.8rem" },
+        fontWeight: 600,
+        transition: "all .18s ease",
+        opacity: isPrev ? 0.2 : 1,
+        userSelect: "none",
+        position: "relative",
+        bgcolor: isSelected
+          ? PRIMARY
+          : isToday
+          ? alpha(PRIMARY, 0.12)
+          : status
+          ? statusBg[status] || alpha(cfg?.color, 0.12)
+          : "transparent",
+        color: isSelected
+          ? "#fff"
+          : isToday
+          ? PRIMARY
+          : status
+          ? cfg?.color
+          : isWeekend
+          ? alpha("#000", 0.3)
+          : "text.primary",
+        border: isToday && !isSelected
+          ? `2px solid ${PRIMARY}`
+          : status && !isSelected
+          ? `1.5px solid ${alpha(statusDot[status] || cfg?.color || PRIMARY, 0.35)}`
+          : "2px solid transparent",
+        "&:hover": !isPrev
+          ? { bgcolor: isSelected ? PRIMARY : alpha(PRIMARY, 0.1), transform: "scale(1.08)" }
+          : {},
+      }}
+    >
       {day}
+      {status && !isSelected && (
+        <Box sx={{
+          position: "absolute", bottom: 3,
+          width: 5, height: 5, borderRadius: "50%",
+          bgcolor: statusDot[status] || cfg?.color,
+        }} />
+      )}
     </Box>
   );
 };
@@ -230,7 +340,7 @@ const PunchModal = ({ open, mode, onClose, onConfirm, punchLoading, geo, timer }
   const isMobile    = useMediaQuery(theme.breakpoints.down("sm"));
   const isPunchIn   = mode === "in";
   const accentColor = isPunchIn ? SUCCESS : DANGER;
-  const [tick, setTick]                     = useState(new Date());
+  const [tick, setTick]                       = useState(new Date());
   const [showFullAddress, setShowFullAddress] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -447,45 +557,32 @@ const getPeriodDates = (period) => {
   return {};
 };
 
-
-
 // ─── Battery Helper ───────────────────────────────────────────────────────────
-
-// ─── Battery Helper ─────────────────────────────────────────────────────────
-// MUST return { percentage, isCharging } so callers can update state
 const saveBattery = async (userId, token) => {
   try {
     if (!("getBattery" in navigator)) return null;
-
     const battery    = await navigator.getBattery();
     const percentage = Math.round(battery.level * 100);
     const isCharging = battery.charging;
-
-    //console.log("💾 saveBattery — userId:", userId, "| %:", percentage, "| charging:", isCharging);
-
     await axios.post(
       `${API}/api/v1/battery/log`,
       { userId, percentage, isCharging },
       { headers: { Authorization: `Bearer ${token}` } }
     );
-
-    //console.log("✅ Battery saved successfully");
-    return { percentage, isCharging }; // ← CRITICAL: must return this
+    return { percentage, isCharging };
   } catch (e) {
     console.error("❌ Battery save error:", e.message);
     return null;
   }
 };
 
-
-
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Attendance() {
   const theme    = useTheme();
   const navigate = useNavigate();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-const [batteryInfo, setBatteryInfo] = useState({ percentage: null, isCharging: false });
+  const [batteryInfo, setBatteryInfo] = useState({ percentage: null, isCharging: false });
+
   const { userId: paramUserId } = useParams();
   const location                = useLocation();
   const memberInfo              = location.state || {};
@@ -506,6 +603,44 @@ const [batteryInfo, setBatteryInfo] = useState({ percentage: null, isCharging: f
   const isManagerRole = MANAGER_ROLES.includes(userRole);
 
   const showPunchControls = !isAdminView && !isManagerRole;
+
+  // ── FIX 1: Separate calendar attendance state ─────────────────────────────
+  // This is independent of the log's period filter so the calendar always
+  // shows the full month regardless of what filter is selected in the log.
+  const [calendarAttendances, setCalendarAttendances] = useState([]);
+
+  const fetchCalendarMonth = useCallback(async (monthDate) => {
+    const y         = monthDate.getFullYear();
+    const m         = monthDate.getMonth();
+    const startDate = new Date(y, m, 1).toISOString().split("T")[0];
+    const endDate   = new Date(y, m + 1, 0).toISOString().split("T")[0];
+    try {
+      const token = localStorage.getItem("token");
+      const res   = await axios.get(`${API}/api/v1/attendance`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          startDate,
+          endDate,
+          limit: 200,
+          ...(paramUserId
+            ? { userId: paramUserId }
+            : isTeam && user?._id
+            ? { userId: user._id }
+            : {}),
+        },
+      });
+      setCalendarAttendances(res.data?.result?.attendances || []);
+    } catch (e) {
+      console.error("Calendar month fetch failed:", e.message);
+    }
+  }, [paramUserId, isTeam, user]);
+
+  // Re-fetch calendar whenever the displayed month changes
+  useEffect(() => {
+    fetchCalendarMonth(currentMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // ── END FIX 1 ─────────────────────────────────────────────────────────────
 
   const [todayAtt, setTodayAtt] = useState(null);
   useEffect(() => {
@@ -581,59 +716,43 @@ const [batteryInfo, setBatteryInfo] = useState({ percentage: null, isCharging: f
     if (success) showSnack(success, "success");
   }, [error, success, showSnack]);
 
+  // ── FIX 2: Re-fetch calendar when currentMonth changes ───────────────────
+  useEffect(() => {
+    fetchCalendarMonth(currentMonth);
+  }, [currentMonth, fetchCalendarMonth]);
+  // ── END FIX 2 ─────────────────────────────────────────────────────────────
 
-useEffect(() => {
-  if (!("getBattery" in navigator)) return;
-  let battery = null;
-
-  const update = () => {
-    if (!battery) return;
-    setBatteryInfo({
-      percentage: Math.round(battery.level * 100),
-      isCharging: battery.charging,
+  useEffect(() => {
+    if (!("getBattery" in navigator)) return;
+    let battery = null;
+    const update = () => {
+      if (!battery) return;
+      setBatteryInfo({ percentage: Math.round(battery.level * 100), isCharging: battery.charging });
+    };
+    navigator.getBattery().then((b) => {
+      battery = b; update();
+      b.addEventListener("levelchange",    update);
+      b.addEventListener("chargingchange", update);
     });
-  };
+    return () => {
+      if (battery) {
+        battery.removeEventListener("levelchange",    update);
+        battery.removeEventListener("chargingchange", update);
+      }
+    };
+  }, []);
 
-  navigator.getBattery().then((b) => {
-    battery = b;
-    update(); // set immediately on mount
-    b.addEventListener("levelchange",    update);
-    b.addEventListener("chargingchange", update);
-  });
-
-  return () => {
-    if (battery) {
-      battery.removeEventListener("levelchange",    update);
-      battery.removeEventListener("chargingchange", update);
-    }
-  };
-}, []);
-
-
-
-
-  // ── Periodic battery sync while on duty (every 5 min) ────────────────────
-useEffect(() => {
-  if (!user?._id || !hasPunchedIn || hasPunchedOut) return;
-  if (!("getBattery" in navigator)) return;
-
-  const token = localStorage.getItem("token");
-
-  // Save immediately on mount (covers page refresh while on duty)
-  saveBattery(user._id, token).then((res) => {
-    if (res) setBatteryInfo(res);
-  });
-
-  const interval = setInterval(async () => {
-    const res = await saveBattery(user._id, token);
-    if (res) setBatteryInfo(res);
-  }, 5 * 60 * 1000);
-
-  return () => clearInterval(interval);
-}, [hasPunchedIn, hasPunchedOut, user?._id]);
-
-
-
+  useEffect(() => {
+    if (!user?._id || !hasPunchedIn || hasPunchedOut) return;
+    if (!("getBattery" in navigator)) return;
+    const token = localStorage.getItem("token");
+    saveBattery(user._id, token).then((res) => { if (res) setBatteryInfo(res); });
+    const interval = setInterval(async () => {
+      const res = await saveBattery(user._id, token);
+      if (res) setBatteryInfo(res);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [hasPunchedIn, hasPunchedOut, user?._id]);
 
   const openPunchModal = useCallback((mode) => {
     if (mode === "in" && hasPunchedIn) {
@@ -652,7 +771,6 @@ useEffect(() => {
 
   const handleDenyLocation = useCallback(() => { setPunchState({ stage: null, mode: "in" }); geo.reset(); }, [geo]);
 
-  // ── Punch confirm — clean single version ─────────────────────────────────
   const handlePunchConfirm = useCallback(async () => {
     const mode = punchState.mode;
     if (mode === "in"  && hasPunchedIn)  { showSnack("Already punched in.",  "warning"); setPunchState({ stage: null, mode: "in" }); return; }
@@ -673,18 +791,15 @@ useEffect(() => {
         showSnack(`Punch ${mode} successful!`);
         setPunchState({ stage: null, mode: "in" });
         await loadData();
-
+        // Also refresh calendar for current month after punch
+        await fetchCalendarMonth(currentMonth);
         if (mode === "in") {
           timer.start(new Date());
-
-          // // ── Save battery immediately on punch-in ──────────────────
           const token = localStorage.getItem("token");
           await saveBattery(user._id, token);
-
-          // ── Live listeners: update battery on level/charging change ─
           if ("getBattery" in navigator) {
             const battery = await navigator.getBattery();
-            battery.addEventListener("levelchange",  () => saveBattery(user._id, token));
+            battery.addEventListener("levelchange",    () => saveBattery(user._id, token));
             battery.addEventListener("chargingchange", () => saveBattery(user._id, token));
           }
         }
@@ -696,37 +811,166 @@ useEffect(() => {
     } finally {
       setPunchLoading(false);
     }
-  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, timer, showSnack, user]);
+  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, fetchCalendarMonth, currentMonth, timer, showSnack, user]);
 
-  const handleCloseConfirm = useCallback(() => { if (!punchLoading) { setPunchState({ stage: null, mode: "in" }); geo.reset(); } }, [punchLoading, geo]);
+  const handleCloseConfirm = useCallback(() => {
+    if (!punchLoading) { setPunchState({ stage: null, mode: "in" }); geo.reset(); }
+  }, [punchLoading, geo]);
 
+  // ─── Calendar Days ────────────────────────────────────────────────────────
+  // FIX 3: Uses calendarAttendances (full month fetch) instead of filtered attendances.
+  // FIX 4: joinDateMs fallback uses start-of-displayed-month instead of today,
+  //         so all past weekdays without records are correctly marked absent.
   const calendarDays = useMemo(() => {
     const y = currentMonth.getFullYear(), m = currentMonth.getMonth();
-    const firstDay = new Date(y, m, 1).getDay(), daysInMonth = new Date(y, m + 1, 0).getDate();
+    const firstDay    = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+
+    // today at midnight — fixed timestamp
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    const todayMs = todayMidnight.getTime();
+
+    // ── Resolve join date ─────────────────────────────────────────────────
+    const joinDateMs = (() => {
+      // 1. Backend createdAt (once backend sends it)
+      const raw = isAdminView
+        ? (memberInfo?.createdAt || memberInfo?.memberCreatedAt || memberInfo?.joinDate)
+        : (user?.createdAt || user?.joinDate || user?.joiningDate);
+
+      if (raw) {
+        const d = new Date(raw);
+        d.setHours(0, 0, 0, 0);
+        if (!isNaN(d.getTime())) {
+          return d.getTime();
+        }
+      }
+
+      // 2. Decode from MongoDB ObjectId — primary working method
+      const objectId = isAdminView ? String(paramUserId || "") : String(user?._id || "");
+      const decoded  = getJoinDateFromObjectId(objectId);
+      if (decoded) {
+        return decoded.getTime();
+      }
+
+      // 3. Earliest attendance record in the calendar month fetch
+      if (calendarAttendances?.length > 0) {
+        const earliest = calendarAttendances.reduce((min, a) => {
+          const d = new Date(a.date);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime() < min ? d.getTime() : min;
+        }, new Date(calendarAttendances[0].date).setHours(0, 0, 0, 0));
+        return earliest;
+      }
+
+      // ── FIX 4: Fallback to start of the DISPLAYED month, NOT today ────
+      // Using today as fallback was blocking all past days in the month
+      // from being marked absent. Start-of-month means all past weekdays
+      // in the current calendar view will correctly show the red absent dot.
+      const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      return startOfMonth.getTime();
+    })();
+
     const days = [];
-    for (let i = firstDay - 1; i >= 0; i--) { const d = new Date(y, m, -i); days.push({ day: d.getDate(), date: d, isPrev: true }); }
+
+    // Previous month filler cells
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const d = new Date(y, m, -i);
+      days.push({ day: d.getDate(), date: d, isPrev: true });
+    }
+
     for (let i = 1; i <= daysInMonth; i++) {
       const date = new Date(y, m, i);
-      const att  = attendances?.find((a) => new Date(a.date).toDateString() === date.toDateString());
-      days.push({ day: i, date, status: att?.status, att });
+      date.setHours(0, 0, 0, 0);
+      const dateMs = date.getTime();
+
+      // ── FIX 3: Use calendarAttendances (full month) for calendar dots ─
+      // Previously used `attendances` which is filtered by the log's period
+      // selector, meaning "This Week" would hide most of the month's records.
+      const att = calendarAttendances?.find(
+        (a) => new Date(a.date).toDateString() === date.toDateString()
+      );
+
+      const status = resolveCalendarStatus(dateMs, att, todayMs, joinDateMs);
+      days.push({ day: i, date, status, att });
     }
+
     return days;
-  }, [currentMonth, attendances]);
+  }, [currentMonth, calendarAttendances, user, isAdminView, memberInfo, paramUserId]);
 
   const DOW = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-  const handleDateSelect    = useCallback((d) => {
+
+  // ── Merged log: real attendance records + synthetic absent rows ───────────
+  // This makes absent days appear in the Attendance Log table just like
+  // present days, so the user can see every day clearly in one place.
+  const mergedLog = useMemo(() => {
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    const todayMs = todayMidnight.getTime();
+
+    // Build a set of dates that already have a real attendance record
+    const recordedDates = new Set(
+      (calendarAttendances || []).map((a) => new Date(a.date).toDateString())
+    );
+
+    // Collect absent rows from calendarDays (past weekdays with status "absent")
+    const absentRows = calendarDays
+      .filter((c) => !c.isPrev && c.status === "absent" && c.date)
+      .filter((c) => !recordedDates.has(c.date.toDateString()))
+      .map((c) => ({
+        _id:            `absent-${c.date.toISOString()}`,
+        date:           c.date.toISOString(),
+        status:         "absent",
+        punchIn:        null,
+        punchOut:       null,
+        workHours:      0,
+        workHoursFormatted: "—",
+        _isAbsentRow:   true, // flag so we know it's synthetic
+      }));
+
+    // Merge: real records first, then absent rows for days not already covered
+    const real = attendances || [];
+
+    // If filter is active (status filter = absent), show only absent rows
+    // If status filter = present/late/etc, hide absent rows
+    if (filters.status && filters.status !== "absent") {
+      return real; // absent rows don't match other status filters
+    }
+    if (filters.status === "absent") {
+      // Show both real absent records + synthetic absent rows
+      return [...real, ...absentRows].sort(
+        (a, b) => new Date(b.date) - new Date(a.date)
+      );
+    }
+
+    // Default: merge all, sort by date descending
+    return [...real, ...absentRows].sort(
+      (a, b) => new Date(b.date) - new Date(a.date)
+    );
+  }, [calendarDays, calendarAttendances, attendances, filters.status]);
+
+  const handleDateSelect = useCallback((d) => {
     setSelectedDate(d);
-    const att = attendances?.find((a) => new Date(a.date).toDateString() === d.toDateString());
+    // FIX: Also check calendarAttendances when clicking a date on calendar
+    const att = calendarAttendances?.find((a) => new Date(a.date).toDateString() === d.toDateString())
+             || attendances?.find((a) => new Date(a.date).toDateString() === d.toDateString());
     if (att) { setSelLog(att); setLogOpen(true); }
-  }, [attendances]);
+  }, [calendarAttendances, attendances]);
+
   const handleDeleteOpen    = useCallback((att) => { setDeleteTarget(att); setDeleteOpen(true); }, []);
   const handleDeleteConfirm = useCallback(async () => {
     const id = deleteTarget?._id || deleteTarget?.id;
     if (!id) { setDeleteOpen(false); return; }
     const res = await deleteAttendance(id);
-    if (res?.success) await loadData();
+    if (res?.success) {
+      await loadData();
+      // Also refresh calendar after delete
+      await fetchCalendarMonth(currentMonth);
+    }
     setDeleteOpen(false); setDeleteTarget(null);
-  }, [deleteTarget, deleteAttendance, loadData]);
+  }, [deleteTarget, deleteAttendance, loadData, fetchCalendarMonth, currentMonth]);
+
   const clearFilters = useCallback(() => { setFilters({ page: 1, limit: 10, status: "", search: "" }); setPeriod("This Month"); }, []);
   const setFilter    = (key) => (val) => setFilters((prev) => ({ ...prev, [key]: val, page: 1 }));
   const fmtDate      = (ts) => !ts ? "—" : new Date(ts).toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
@@ -748,7 +992,6 @@ useEffect(() => {
         {[{ w: 200, h: 200, t: -70, r: -50 }, { w: 120, h: 120, t: 20, r: 100 }].map((b, i) => (
           <Box key={i} sx={{ position: "absolute", width: b.w, height: b.h, borderRadius: "50%", bgcolor: "#fff", opacity: i === 0 ? 0.05 : 0.04, top: b.t, right: b.r, pointerEvents: "none" }} />
         ))}
-
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
           <Stack direction="row" spacing={2} alignItems="center">
             {isAdminView && (
@@ -770,9 +1013,7 @@ useEffect(() => {
                     {memberInfo.memberName?.charAt(0) || "?"}
                   </Avatar>
                   <Box>
-                    <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={800} lineHeight={1.2}>
-                      {memberInfo.memberName || "Team Member"}
-                    </Typography>
+                    <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={800} lineHeight={1.2}>{memberInfo.memberName || "Team Member"}</Typography>
                     <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
                       {memberInfo.memberRole && <Chip size="small" label={memberInfo.memberRole} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, height: 20, fontSize: "0.68rem" }} />}
                       {memberInfo.memberPhone && (
@@ -803,7 +1044,6 @@ useEffect(() => {
               )}
             </Box>
           </Stack>
-
           <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
             {showPunchControls && (
               <>
@@ -812,7 +1052,7 @@ useEffect(() => {
                 {hasPunchedIn && hasPunchedOut && <Tooltip title="Attendance complete for today" arrow><span><Button variant="contained" startIcon={<CheckCircle />} disabled size={isMobile ? "small" : "medium"} sx={{ fontWeight: 700, borderRadius: 2.5, bgcolor: "rgba(255,255,255,.15) !important", color: "rgba(255,255,255,.6) !important" }}>Day Complete</Button></span></Tooltip>}
               </>
             )}
-            {!isMobile && attendances?.length > 0 && <BulkExportMenu selectedRecords={selectedRecords} allRecords={attendances || []} onSnack={showSnack} />}
+            {!isMobile && mergedLog.length > 0 && <BulkExportMenu selectedRecords={selectedRecords} allRecords={attendances || []} onSnack={showSnack} />}
             <Button variant="contained" startIcon={<Refresh />} onClick={loadData} disabled={loading} size={isMobile ? "small" : "medium"} sx={{ bgcolor: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 2.5, "&:hover": { bgcolor: "rgba(255,255,255,.25)" } }}>Refresh</Button>
             {isMobile && <Button variant="contained" startIcon={<FilterAlt />} onClick={() => setDrawerOpen(true)} size="small" sx={{ bgcolor: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 2.5, "&:hover": { bgcolor: "rgba(255,255,255,.25)" }, position: "relative" }}>Filter{activeFilterCount > 0 && <Badge badgeContent={activeFilterCount} color="error" sx={{ position: "absolute", top: -8, right: -8 }} />}</Button>}
           </Stack>
@@ -849,16 +1089,181 @@ useEffect(() => {
       </Paper>
 
       {/* ── Stats ───────────────────────────────────────────────────────── */}
-      <Grid container spacing={isMobile ? 1.5 : 2} sx={{ mb: 3 }}>
-        {[
-          { icon: CalendarToday, label: "Total Days",    value: pagination?.totalItems || 0,                              color: PRIMARY,   sub: "All records",  index: 0 },
-          { icon: AccessTime,    label: "Work Hours",    value: `${(summary?.totalWorkHours || 0).toFixed(1)}h`,          color: "#3b82f6", sub: "Total logged",  index: 1 },
-          { icon: CheckCircle,   label: "Present",       value: summary?.presentCount || 0,                               color: SUCCESS,   sub: "On time",      index: 2 },
-          { icon: Warning,       label: "Late / Absent", value: `${summary?.lateCount || 0}/${summary?.absentCount || 0}`,color: WARNING,   sub: "Needs review", index: 3 },
-        ].map((props) => (
-          <Grid item xs={6} sm={3} key={props.label}><StatCard {...props} loading={loading} /></Grid>
-        ))}
-      </Grid>
+      {(() => {
+        // Compute real counts from merged data so boxes are never 0
+        const totalDays   = mergedLog.length;
+        const workHours   = (summary?.totalWorkHours || 0).toFixed(1);
+        const presentCount = mergedLog.filter((a) => !a._isAbsentRow && (a.status === "present" || (!a.status && a.punchIn))).length
+                           + (summary?.presentCount || 0 > 0 && mergedLog.filter((a) => !a._isAbsentRow).length === 0 ? summary.presentCount : 0);
+        const lateCount   = mergedLog.filter((a) => !a._isAbsentRow && a.status === "late").length
+                           || summary?.lateCount || 0;
+        const absentCount = mergedLog.filter((a) => a._isAbsentRow || a.status === "absent").length
+                           || summary?.absentCount || 0;
+
+        const stats = [
+          {
+            icon: CalendarToday,
+            label: "Total Days",
+            value: totalDays,
+            sub: "All records",
+            color: PRIMARY,
+            gradFrom: "#eff6ff",
+            gradTo: "#dbeafe",
+            iconBg: alpha(PRIMARY, 0.12),
+            border: alpha(PRIMARY, 0.18),
+          },
+          {
+            icon: AccessTime,
+            label: "Work Hours",
+            value: `${workHours}h`,
+            sub: "Total logged",
+            color: "#0ea5e9",
+            gradFrom: "#f0f9ff",
+            gradTo: "#e0f2fe",
+            iconBg: alpha("#0ea5e9", 0.12),
+            border: alpha("#0ea5e9", 0.18),
+          },
+          {
+            icon: CheckCircle,
+            label: "Present",
+            value: mergedLog.filter((a) => !a._isAbsentRow && (a.status === "present" || a.status === "late" || (a.punchIn && !a._isAbsentRow))).length || summary?.presentCount || 0,
+            sub: "On time days",
+            color: "#16a34a",
+            gradFrom: "#f0fdf4",
+            gradTo: "#dcfce7",
+            iconBg: alpha(SUCCESS, 0.12),
+            border: alpha(SUCCESS, 0.22),
+          },
+          {
+            icon: Warning,
+            label: "Late",
+            value: lateCount,
+            sub: "Late arrivals",
+            color: "#d97706",
+            gradFrom: "#fffbeb",
+            gradTo: "#fef3c7",
+            iconBg: alpha(WARNING, 0.12),
+            border: alpha(WARNING, 0.22),
+          },
+          {
+            icon: ErrorIcon,
+            label: "Absent",
+            value: absentCount,
+            sub: "Days missed",
+            color: "#dc2626",
+            gradFrom: "#fef2f2",
+            gradTo: "#fee2e2",
+            iconBg: alpha(DANGER, 0.12),
+            border: alpha(DANGER, 0.22),
+          },
+        ];
+
+        return (
+          <Grid container spacing={isMobile ? 1.5 : 2} sx={{ mb: 3 }}>
+            {stats.map((s, idx) => (
+              <Grid item xs={6} sm={4} md={isMobile ? 6 : 2.4} key={s.label}>
+                <Fade in timeout={300 + idx * 80}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: { xs: 1.75, sm: 2.25 },
+                      borderRadius: "18px",
+                      height: "100%",
+                      border: `1.5px solid ${s.border}`,
+                      background: `linear-gradient(145deg, ${s.gradFrom} 0%, ${s.gradTo} 100%)`,
+                      position: "relative",
+                      overflow: "hidden",
+                      transition: "transform .2s, box-shadow .2s",
+                      "&:hover": {
+                        transform: "translateY(-4px)",
+                        boxShadow: `0 10px 28px ${alpha(s.color, 0.16)}`,
+                      },
+                    }}
+                  >
+                    {/* Decorative circle */}
+                    <Box sx={{
+                      position: "absolute", top: -18, right: -18,
+                      width: 72, height: 72, borderRadius: "50%",
+                      bgcolor: alpha(s.color, 0.08),
+                      pointerEvents: "none",
+                    }} />
+                    {loading ? (
+                      <Skeleton variant="rectangular" height={80} sx={{ borderRadius: 2 }} />
+                    ) : (
+                      <Stack spacing={1.25}>
+                        {/* Icon + value row */}
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Box sx={{
+                            width: { xs: 36, sm: 42 }, height: { xs: 36, sm: 42 },
+                            borderRadius: "12px",
+                            bgcolor: s.iconBg,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            border: `1px solid ${alpha(s.color, 0.15)}`,
+                          }}>
+                            <s.icon sx={{ fontSize: { xs: 18, sm: 21 }, color: s.color }} />
+                          </Box>
+                          <Typography
+                            fontWeight={900}
+                            sx={{
+                              fontSize: { xs: "1.5rem", sm: "1.9rem" },
+                              lineHeight: 1,
+                              color: s.color,
+                              letterSpacing: "-0.03em",
+                            }}
+                          >
+                            {s.value}
+                          </Typography>
+                        </Stack>
+
+                        {/* Label + sub */}
+                        <Box>
+                          <Typography
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: { xs: "0.78rem", sm: "0.86rem" },
+                              color: "#1e293b",
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {s.label}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "#94a3b8", fontSize: "0.7rem", mt: 0.2, display: "block" }}
+                          >
+                            {s.sub}
+                          </Typography>
+                        </Box>
+
+                        {/* Bottom accent bar */}
+                        <Box sx={{
+                          height: 3, borderRadius: "999px",
+                          bgcolor: alpha(s.color, 0.18),
+                          overflow: "hidden",
+                        }}>
+                          <Box sx={{
+                            height: "100%",
+                            width: s.label === "Work Hours"
+                              ? `${Math.min(parseFloat(workHours) / 200 * 100, 100)}%`
+                              : s.label === "Total Days"
+                              ? "100%"
+                              : totalDays > 0
+                              ? `${Math.min((Number(s.value) / totalDays) * 100, 100)}%`
+                              : "0%",
+                            bgcolor: s.color,
+                            borderRadius: "999px",
+                            transition: "width 0.8s ease",
+                          }} />
+                        </Box>
+                      </Stack>
+                    )}
+                  </Paper>
+                </Fade>
+              </Grid>
+            ))}
+          </Grid>
+        );
+      })()}
 
       {isMobile && (
         <Box sx={{ mb: 2 }}>
@@ -891,16 +1296,16 @@ useEffect(() => {
           </Stack>
           {activeFilterCount > 0 && (
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 1.5 }}>
-              {filters.search      && <Chip size="small" label={`Search: "${filters.search}"`} onDelete={() => setFilter("search")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
-              {filters.status      && <Chip size="small" label={`Status: ${filters.status}`}   onDelete={() => setFilter("status")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
-              {period !== "This Month" && <Chip size="small" label={`Period: ${period}`}        onDelete={() => setPeriod("This Month")} sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
+              {filters.search           && <Chip size="small" label={`Search: "${filters.search}"`} onDelete={() => setFilter("search")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
+              {filters.status           && <Chip size="small" label={`Status: ${filters.status}`}   onDelete={() => setFilter("status")("")}  sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
+              {period !== "This Month"  && <Chip size="small" label={`Period: ${period}`}            onDelete={() => setPeriod("This Month")} sx={{ bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY }} />}
             </Stack>
           )}
         </Paper>
       )}
 
       <Grid container spacing={isMobile ? 2 : 3}>
-        {/* Calendar */}
+        {/* ── Calendar ───────────────────────────────────────────────────── */}
         <Grid item xs={12} md={5} lg={4}>
           <GlassCard>
             <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
@@ -918,16 +1323,32 @@ useEffect(() => {
               <Grid container columns={7} spacing={0.25}>
                 {calendarDays.map((c, i) => (
                   <Grid item xs={1} key={i}>
-                    <CalCell day={c.day} isPrev={c.isPrev} isSelected={c.date?.toDateString() === selectedDate.toDateString()} isToday={c.date?.toDateString() === new Date().toDateString()} isWeekend={c.date && [0, 6].includes(c.date.getDay())} status={c.status} onClick={() => !c.isPrev && c.date && handleDateSelect(c.date)} />
+                    <CalCell
+                      day={c.day}
+                      isPrev={c.isPrev}
+                      isSelected={c.date?.toDateString() === selectedDate.toDateString()}
+                      isToday={c.date?.toDateString() === new Date().toDateString()}
+                      isWeekend={c.date && [0, 6].includes(c.date.getDay())}
+                      status={c.status}
+                      onClick={() => !c.isPrev && c.date && handleDateSelect(c.date)}
+                    />
                   </Grid>
                 ))}
               </Grid>
+              {/* ── Legend ── */}
               <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${alpha(PRIMARY, 0.08)}` }}>
                 <Grid container spacing={1}>
-                  {[["Present", SUCCESS], ["Late", WARNING], ["Absent", DANGER], ["Holiday", "#3b82f6"]].map(([l, c]) => (
+                  {[
+                    ["Present",  SUCCESS,   "#dcfce7"],
+                    ["Late",     WARNING,   "#fef9c3"],
+                    ["Absent",   DANGER,    "#fee2e2"],
+                    ["Holiday",  "#3b82f6", "#dbeafe"],
+                  ].map(([l, dotColor, bg]) => (
                     <Grid item xs={6} key={l}>
                       <Stack direction="row" spacing={0.75} alignItems="center">
-                        <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: c, flexShrink: 0 }} />
+                        <Box sx={{ width: 14, height: 14, borderRadius: 0.5, bgcolor: bg, border: `1.5px solid ${alpha(dotColor, 0.4)}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: dotColor }} />
+                        </Box>
                         <Typography variant="caption" color="text.secondary">{l}</Typography>
                       </Stack>
                     </Grid>
@@ -938,7 +1359,7 @@ useEffect(() => {
           </GlassCard>
         </Grid>
 
-        {/* Log */}
+        {/* ── Log ────────────────────────────────────────────────────────── */}
         <Grid item xs={12} md={7} lg={8}>
           <GlassCard sx={{ height: "100%" }}>
             <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
@@ -946,22 +1367,22 @@ useEffect(() => {
                 <Box>
                   <Typography variant="h6" fontWeight={700}>Attendance Log</Typography>
                   <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="caption" color="text.secondary">{pagination?.totalItems || 0} total records</Typography>
+                    <Typography variant="caption" color="text.secondary">{mergedLog.length} total records</Typography>
                     {someSelected && !isMobile && <Chip size="small" label={`${selectedIds.size} selected`} onDelete={() => setSelectedIds(new Set())} sx={{ bgcolor: alpha(PRIMARY, 0.1), color: PRIMARY, fontWeight: 700, height: 20, fontSize: "0.68rem" }} />}
                   </Stack>
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  {isMobile && attendances?.length > 0 && <BulkExportMenu selectedRecords={selectedRecords} allRecords={attendances || []} onSnack={showSnack} />}
+                  {isMobile && mergedLog.length > 0 && <BulkExportMenu selectedRecords={selectedRecords} allRecords={attendances || []} onSnack={showSnack} />}
                   {loading && <CircularProgress size={20} sx={{ color: PRIMARY }} />}
                 </Stack>
               </Stack>
 
-              {attendances?.length > 0 ? (
+              {mergedLog.length > 0 ? (
                 <>
                   {isMobile ? (
                     <Box>
-                      {attendances.map((a, i) => (
-                        <MobileLogCard key={a._id || a.id} entry={a} onView={(e) => { setSelLog(e); setLogOpen(true); }} onDelete={handleDeleteOpen} canDelete={canDelete} index={i} />
+                      {mergedLog.map((a, i) => (
+                        <MobileLogCard key={a._id || a.id} entry={a} onView={(e) => { if (!e._isAbsentRow) { setSelLog(e); setLogOpen(true); } }} onDelete={handleDeleteOpen} canDelete={canDelete && !a._isAbsentRow} index={i} />
                       ))}
                     </Box>
                   ) : (
@@ -980,22 +1401,60 @@ useEffect(() => {
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {attendances.map((a) => {
-                            const id        = a._id || a.id;
-                            const isChecked = selectedIds.has(id);
+                          {mergedLog.map((a) => {
+                            const id          = a._id || a.id;
+                            const isChecked   = selectedIds.has(id);
+                            const isAbsent    = a._isAbsentRow;
                             return (
-                              <TableRow key={id} hover selected={isChecked} sx={{ "&:hover": { bgcolor: alpha(PRIMARY, 0.02) }, "&.Mui-selected": { bgcolor: alpha(PRIMARY, 0.04) }, "&.Mui-selected:hover": { bgcolor: alpha(PRIMARY, 0.06) } }}>
-                                <TableCell padding="checkbox"><Checkbox size="small" checked={isChecked} onChange={() => toggleRow(id)} sx={{ color: alpha(PRIMARY, 0.3), "&.Mui-checked": { color: PRIMARY } }} /></TableCell>
-                                <TableCell><Typography variant="body2" fontWeight={600}>{fmtDate(a.date)}</Typography></TableCell>
-                                <TableCell>{a.punchIn ? <Chip label={fmtTime(a.punchIn.time)} size="small" sx={{ bgcolor: alpha(SUCCESS, 0.1), color: SUCCESS, fontWeight: 700, fontSize: "0.72rem" }} /> : <Typography variant="body2" color="text.disabled">—</Typography>}</TableCell>
-                                <TableCell>{a.punchOut ? <Chip label={fmtTime(a.punchOut.time)} size="small" sx={{ bgcolor: alpha(WARNING, 0.1), color: WARNING, fontWeight: 700, fontSize: "0.72rem" }} /> : a.punchIn ? <Chip label="Ongoing" size="small" variant="outlined" sx={{ color: PRIMARY, borderColor: PRIMARY, fontWeight: 700 }} /> : <Typography variant="body2" color="text.disabled">—</Typography>}</TableCell>
-                                <TableCell><Typography variant="body2" fontWeight={700} color={PRIMARY}>{a.workHoursFormatted || "—"}</Typography></TableCell>
+                              <TableRow
+                                key={id}
+                                hover={!isAbsent}
+                                selected={isChecked}
+                                sx={{
+                                  bgcolor: isAbsent ? alpha(DANGER, 0.03) : undefined,
+                                  "&:hover": { bgcolor: isAbsent ? alpha(DANGER, 0.06) : alpha(PRIMARY, 0.02) },
+                                  "&.Mui-selected": { bgcolor: alpha(PRIMARY, 0.04) },
+                                  "&.Mui-selected:hover": { bgcolor: alpha(PRIMARY, 0.06) },
+                                  borderLeft: isAbsent ? `3px solid ${alpha(DANGER, 0.4)}` : "3px solid transparent",
+                                }}
+                              >
+                                <TableCell padding="checkbox">
+                                  {!isAbsent && (
+                                    <Checkbox size="small" checked={isChecked} onChange={() => toggleRow(id)} sx={{ color: alpha(PRIMARY, 0.3), "&.Mui-checked": { color: PRIMARY } }} />
+                                  )}
+                                </TableCell>
+                                <TableCell><Typography variant="body2" fontWeight={600} color={isAbsent ? DANGER : "inherit"}>{fmtDate(a.date)}</Typography></TableCell>
+                                <TableCell>
+                                  {a.punchIn
+                                    ? <Chip
+                                        label={fmtTime(a.punchIn.time)}
+                                        size="small"
+                                        sx={{
+                                          bgcolor: a.status === "late" ? alpha(WARNING, 0.12) : alpha(SUCCESS, 0.1),
+                                          color:   a.status === "late" ? WARNING : SUCCESS,
+                                          fontWeight: 700, fontSize: "0.72rem",
+                                        }}
+                                      />
+                                    : <Typography variant="body2" color="text.disabled">—</Typography>}
+                                </TableCell>
+                                <TableCell>
+                                  {a.punchOut
+                                    ? <Chip label={fmtTime(a.punchOut.time)} size="small" sx={{ bgcolor: alpha(WARNING, 0.1), color: WARNING, fontWeight: 700, fontSize: "0.72rem" }} />
+                                    : a.punchIn
+                                    ? <Chip label="Ongoing" size="small" variant="outlined" sx={{ color: PRIMARY, borderColor: PRIMARY, fontWeight: 700 }} />
+                                    : <Typography variant="body2" color="text.disabled">—</Typography>}
+                                </TableCell>
+                                <TableCell><Typography variant="body2" fontWeight={700} color={isAbsent ? DANGER : PRIMARY}>{a.workHoursFormatted || "—"}</Typography></TableCell>
                                 <TableCell><StatusBadge status={a.status || "present"} /></TableCell>
                                 <TableCell>
-                                  <Stack direction="row" spacing={0.5}>
-                                    <Tooltip title="View Details"><IconButton size="small" onClick={() => { setSelLog(a); setLogOpen(true); }} sx={{ color: PRIMARY, "&:hover": { bgcolor: alpha(PRIMARY, 0.08) } }}><Visibility fontSize="small" /></IconButton></Tooltip>
-                                    {canDelete && <Tooltip title="Delete"><IconButton size="small" onClick={() => handleDeleteOpen(a)} sx={{ color: DANGER, "&:hover": { bgcolor: alpha(DANGER, 0.08) } }}><Delete fontSize="small" /></IconButton></Tooltip>}
-                                  </Stack>
+                                  {isAbsent ? (
+                                    <Typography variant="caption" color={alpha(DANGER, 0.5)} sx={{ fontStyle: "italic" }}>No record</Typography>
+                                  ) : (
+                                    <Stack direction="row" spacing={0.5}>
+                                      <Tooltip title="View Details"><IconButton size="small" onClick={() => { setSelLog(a); setLogOpen(true); }} sx={{ color: PRIMARY, "&:hover": { bgcolor: alpha(PRIMARY, 0.08) } }}><Visibility fontSize="small" /></IconButton></Tooltip>
+                                      {canDelete && <Tooltip title="Delete"><IconButton size="small" onClick={() => handleDeleteOpen(a)} sx={{ color: DANGER, "&:hover": { bgcolor: alpha(DANGER, 0.08) } }}><Delete fontSize="small" /></IconButton></Tooltip>}
+                                    </Stack>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             );
@@ -1045,7 +1504,7 @@ useEffect(() => {
         </Grid>
       </Grid>
 
-      {/* Filter Drawer */}
+      {/* ── Filter Drawer ───────────────────────────────────────────────── */}
       <SwipeableDrawer anchor="bottom" open={drawerOpen} onClose={() => setDrawerOpen(false)} onOpen={() => {}} PaperProps={{ sx: { borderTopLeftRadius: 24, borderTopRightRadius: 24 } }}>
         <Box sx={{ width: 40, height: 4, bgcolor: "grey.300", borderRadius: 2, mx: "auto", my: 1.5 }} />
         <Box sx={{ px: 3, pb: 3 }}>

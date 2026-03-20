@@ -1,13 +1,5 @@
 // utils/LiveTrackingMap.jsx
-// Google Maps — shows full red trail from DB + live GPS points.
-//
-// BUGS FIXED:
-// 1. Trail was not loading from DB on admin page — salesmanId query param
-//    was missing when admin opens the page for a specific user.
-// 2. drawTrail() was rebuilding all markers on every point — now updates
-//    polyline path incrementally so existing dots stay on map.
-// 3. Admin page was not polling for new points — now polls every 10s
-//    from DB so admin always sees the latest trail even without socket.
+// All errors now show as toasts. setError state removed.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -15,27 +7,32 @@ import {
   getTrackPoints, isCurrentlyTracking,
 } from "./Locationtracker";
 import { useSocket } from "./Usesocket.js";
+import { toast } from "../components/useToast.jsx";
 
 const API    = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 const GKEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
-const TTL_MS = 10 * 60 * 60 * 1000; // 10 hours
+const TTL_MS = 10 * 60 * 60 * 1000;
 
 const getToken = () =>
   localStorage.getItem("token")      ||
   localStorage.getItem("authToken")  ||
   localStorage.getItem("accessToken") || "";
 
-// ── Load Google Maps once ─────────────────────────────────────────────────────
 let gmapsPromise = null;
 function loadGoogleMaps() {
   if (window.google?.maps) return Promise.resolve();
   if (gmapsPromise) return gmapsPromise;
+
+  if (!GKEY) {
+    return Promise.reject(new Error("VITE_GOOGLE_MAPS_API_KEY is not set in your .env file."));
+  }
+
   gmapsPromise = new Promise((resolve, reject) => {
     const s   = document.createElement("script");
     s.src     = `https://maps.googleapis.com/maps/api/js?key=${GKEY}`;
     s.async   = true;
     s.onload  = resolve;
-    s.onerror = reject;
+    s.onerror = () => reject(new Error("Google Maps script failed to load. Check your API key."));
     document.head.appendChild(s);
   });
   return gmapsPromise;
@@ -51,16 +48,15 @@ export default function LiveTrackingMap({
 }) {
   const mapDivRef   = useRef(null);
   const gMapRef     = useRef(null);
-  const polyRef     = useRef(null);       // red polyline
-  const startMkRef  = useRef(null);       // green start marker
-  const liveMkRef   = useRef(null);       // red current position marker
-  const dotsRef     = useRef([]);         // intermediate red dots
-  const allPtsRef   = useRef([]);         // { lat, lng }[] — full trail
+  const polyRef     = useRef(null);
+  const startMkRef  = useRef(null);
+  const liveMkRef   = useRef(null);
+  const dotsRef     = useRef([]);
+  const allPtsRef   = useRef([]);
 
   const [mapLoaded,  setMapLoaded]  = useState(false);
   const [accuracy,   setAccuracy]   = useState(null);
   const [sockAck,    setSockAck]    = useState(null);
-  const [error,      setError]      = useState(null);
   const [totalKm,    setTotalKm]    = useState(0);
   const [pointCount, setPointCount] = useState(0);
 
@@ -69,7 +65,7 @@ export default function LiveTrackingMap({
   const { socket, connected } = useSocket();
   const isLive = isPunchedIn && !hasPunchedOut;
 
-  // ── Init Google Map ───────────────────────────────────────────────────────────
+  // ── Init Google Map ────────────────────────────────────────────────────────
   useEffect(() => {
     loadGoogleMaps()
       .then(() => {
@@ -86,19 +82,19 @@ export default function LiveTrackingMap({
         });
         setMapLoaded(true);
       })
-      .catch(() => setError("Google Maps failed to load. Check your API key."));
+      .catch((err) => {
+        toast.error(err.message, { title: "Map Failed to Load" });
+      });
   }, []);
 
-  // ── Draw full trail on map ────────────────────────────────────────────────────
+  // ── Draw trail ─────────────────────────────────────────────────────────────
   function drawTrail(points) {
     if (!gMapRef.current || !window.google?.maps || points.length === 0) return;
     const G   = window.google.maps;
     const map = gMapRef.current;
 
-    // ── Update or create red polyline ─────────────────────────────────────────
     const path = points.map(p => ({ lat: p.lat, lng: p.lng }));
     if (polyRef.current) {
-      // Just update path — don't recreate the whole polyline
       polyRef.current.setPath(path);
     } else if (points.length >= 2) {
       polyRef.current = new G.Polyline({
@@ -119,7 +115,6 @@ export default function LiveTrackingMap({
       });
     }
 
-    // ── Green start marker ────────────────────────────────────────────────────
     if (!startMkRef.current && points.length > 0) {
       startMkRef.current = new G.Marker({
         position: { lat: points[0].lat, lng: points[0].lng },
@@ -132,8 +127,6 @@ export default function LiveTrackingMap({
       });
     }
 
-    // ── Red dots — every 4th intermediate point ───────────────────────────────
-    // Clear old dots and redraw
     dotsRef.current.forEach(d => d.setMap(null));
     dotsRef.current = [];
     points.forEach((pt, i) => {
@@ -151,11 +144,9 @@ export default function LiveTrackingMap({
       dotsRef.current.push(dot);
     });
 
-    // ── Live red marker (current position) ────────────────────────────────────
     const last = points[points.length - 1];
     if (last) {
       if (liveMkRef.current) {
-        // Just move it — don't recreate
         liveMkRef.current.setPosition({ lat: last.lat, lng: last.lng });
       } else {
         liveMkRef.current = new G.Marker({
@@ -168,14 +159,9 @@ export default function LiveTrackingMap({
           },
         });
       }
-
-      // Pan map to latest point while live
-      if (isLive) {
-        map.panTo({ lat: last.lat, lng: last.lng });
-      }
+      if (isLive) map.panTo({ lat: last.lat, lng: last.lng });
     }
 
-    // ── Fit bounds to show full trail (first load only) ───────────────────────
     if (points.length >= 2 && !polyRef.current?.fitted) {
       const bounds = new G.LatLngBounds();
       points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
@@ -189,17 +175,14 @@ export default function LiveTrackingMap({
     setPointCount(points.length);
   }
 
-  // ── Clean raw trail points from API ──────────────────────────────────────────
   function cleanPoints(raw) {
     const now     = Date.now();
     const cleaned = [];
     for (const p of raw) {
       if (!p.lat || !p.lng) continue;
       if (p.accuracy && p.accuracy > 1000) continue;
-      // Skip expired points (older than 10h)
       const ptTime = p.recordedAt || p.time || p.createdAt;
       if (ptTime && now - new Date(ptTime).getTime() > TTL_MS) continue;
-      // Skip impossible jumps > 10km
       if (cleaned.length > 0) {
         const prev   = cleaned[cleaned.length - 1];
         const R      = 6371;
@@ -214,7 +197,6 @@ export default function LiveTrackingMap({
     return cleaned;
   }
 
-  // ── Fetch total km ────────────────────────────────────────────────────────────
   async function fetchTotalKm() {
     if (!userId) return;
     try {
@@ -229,19 +211,26 @@ export default function LiveTrackingMap({
     } catch { /* non-fatal */ }
   }
 
-  // ── FIX: Load trail from DB ───────────────────────────────────────────────────
-  // Previously salesmanId was not always passed — admin page was loading
-  // the wrong user's trail or no trail at all.
   async function loadTrailFromDB() {
     if (!userId || !mapLoaded) return;
     try {
       const now   = new Date();
-      const since = new Date(now.getTime() - TTL_MS); // 10h window
+      const since = new Date(now.getTime() - TTL_MS);
+      const url   = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
+      const res   = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
 
-      // FIX: Always pass salesmanId so admin sees the correct user's trail
-      const url = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
-      if (!res.ok) return;
+      if (res.status === 401) {
+        toast.error("Session expired. Please log in again.", { title: "Authentication Error" });
+        return;
+      }
+      if (res.status === 403) {
+        toast.error("You don't have permission to view this user's trail.", { title: "Access Denied" });
+        return;
+      }
+      if (!res.ok) {
+        toast.error(`Failed to load trail (HTTP ${res.status}).`, { title: "Trail Load Failed" });
+        return;
+      }
 
       const data    = await res.json();
       const raw     = data?.result || data?.data || data?.points || [];
@@ -250,31 +239,24 @@ export default function LiveTrackingMap({
       if (cleaned.length > 0) {
         allPtsRef.current = cleaned;
         drawTrail(cleaned);
-        console.log(`[LiveTrackingMap] ✅ Loaded ${cleaned.length} red marks for user ${userId}`);
       }
 
       await fetchTotalKm();
     } catch (e) {
+      toast.warn("Could not load location trail. Check your connection.", { title: "Trail Unavailable" });
       console.warn("[LiveTrackingMap] Trail load failed:", e.message);
     }
   }
 
-  // Load trail on mount and when userId/mapLoaded changes
-  useEffect(() => {
-    loadTrailFromDB();
-  }, [userId, mapLoaded]);
+  useEffect(() => { loadTrailFromDB(); }, [userId, mapLoaded]);
 
-  // ── FIX: Poll DB every 10s so admin sees new red marks without refresh ────────
-  // Previously admin had to manually refresh to see new points.
   useEffect(() => {
     if (!userId || !mapLoaded) return;
-    const interval = setInterval(() => {
-      loadTrailFromDB();
-    }, 10_000); // every 10 seconds
+    const interval = setInterval(() => { loadTrailFromDB(); }, 10_000);
     return () => clearInterval(interval);
   }, [userId, mapLoaded]);
 
-  // ── Start / stop tracking on punch-in / punch-out ────────────────────────────
+  // ── Start / stop on punch ──────────────────────────────────────────────────
   useEffect(() => {
     if (!mapLoaded) return;
 
@@ -283,14 +265,10 @@ export default function LiveTrackingMap({
     prevPunchedIn.current  = isPunchedIn;
     prevPunchedOut.current = hasPunchedOut;
 
-    // Just punched in
     if (isPunchedIn && !hasPunchedOut && !wasIn) {
       startTracking((allPts) => {
-        // Merge DB trail + new live points
         const livePts = allPts.map(p => ({ lat: p.lat, lng: p.lng }));
         const merged  = [...allPtsRef.current];
-
-        // Only add truly new points
         for (const lp of livePts) {
           const exists = merged.some(p =>
             Math.abs(p.lat - lp.lat) < 0.000001 &&
@@ -298,26 +276,20 @@ export default function LiveTrackingMap({
           );
           if (!exists) merged.push(lp);
         }
-
         allPtsRef.current = merged;
         drawTrail(merged);
-
         const last = allPts[allPts.length - 1];
         if (last) setAccuracy(last.accuracy);
-
         if (typeof onPointsChange === "function") onPointsChange(allPts);
       }, socket);
     }
 
-    // Just punched out
     if (hasPunchedOut && !wasOut) {
       if (isCurrentlyTracking()) stopTracking();
-      // Reload final trail from DB after 2s
       setTimeout(() => loadTrailFromDB(), 2000);
     }
   }, [isPunchedIn, hasPunchedOut, socket, mapLoaded]);
 
-  // ── Poll local tracker every 5s while live ────────────────────────────────────
   useEffect(() => {
     if (!isPunchedIn || hasPunchedOut || !mapLoaded) return;
     const t = setInterval(() => {
@@ -340,24 +312,23 @@ export default function LiveTrackingMap({
     return () => clearInterval(t);
   }, [isPunchedIn, hasPunchedOut, mapLoaded]);
 
-  // ── Stop on unmount ───────────────────────────────────────────────────────────
   useEffect(() => {
     return () => { if (isCurrentlyTracking()) stopTracking(); };
   }, []);
 
-  // ── Socket events ─────────────────────────────────────────────────────────────
+  // ── Socket events ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!socket) return;
-    const onAck   = (data) => setSockAck(data.timestamp);
-    const onError = (data) => setError(data.message);
 
-    // FIX: Also listen for live_update from admin side socket
-    // so when admin watches this user, map updates in real time
+    const onAck   = (data) => setSockAck(data.timestamp);
+    const onError = (data) => {
+      toast.error(data.message || "Socket error occurred.", { title: "Live Sync Error" });
+    };
     const onLiveUpdate = (data) => {
       if (!data.lat || !data.lng) return;
-      const newPt   = { lat: data.lat, lng: data.lng };
-      const merged  = [...allPtsRef.current];
-      const exists  = merged.some(p =>
+      const newPt  = { lat: data.lat, lng: data.lng };
+      const merged = [...allPtsRef.current];
+      const exists = merged.some(p =>
         Math.abs(p.lat - newPt.lat) < 0.000001 &&
         Math.abs(p.lng - newPt.lng) < 0.000001
       );
@@ -379,21 +350,31 @@ export default function LiveTrackingMap({
     };
   }, [socket]);
 
-  // ── Locate Me ─────────────────────────────────────────────────────────────────
+  // ── Locate Me ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!locateTrigger || !gMapRef.current) return;
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser.", { title: "GPS Unavailable" });
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         gMapRef.current.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         gMapRef.current.setZoom(17);
       },
-      (err) => console.warn("[LocateMe] GPS error:", err),
+      (err) => {
+        const msgs = {
+          1: "Location permission denied. Please allow access in browser settings.",
+          2: "Current position unavailable.",
+          3: "Location request timed out.",
+        };
+        toast.error(msgs[err.code] || err.message, { title: "Locate Me Failed" });
+      },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   }, [locateTrigger]);
 
-  // ── Accuracy label ────────────────────────────────────────────────────────────
+  // ── Accuracy label ─────────────────────────────────────────────────────────
   const accuracyColor =
     accuracy == null ? "#94a3b8"
     : accuracy <= 20 ? "#16a34a"
@@ -411,10 +392,8 @@ export default function LiveTrackingMap({
   return (
     <div style={{ position: "relative", width: "100%", height, borderRadius: "inherit" }}>
 
-      {/* Map div */}
       <div ref={mapDivRef} style={{ width: "100%", height: "100%", borderRadius: "inherit" }} />
 
-      {/* Loading */}
       {!mapLoaded && (
         <div style={{
           position: "absolute", inset: 0, display: "flex", alignItems: "center",
@@ -474,17 +453,6 @@ export default function LiveTrackingMap({
           boxShadow: "0 1px 4px rgba(0,0,0,0.08)", pointerEvents: "none",
         }}>
           ✓ Saved {fmtTime(sockAck)}
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div style={{
-          position: "absolute", bottom: 40, left: 10, right: 10, zIndex: 1000,
-          background: "#fee2e2", border: "1px solid #fecaca",
-          borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#dc2626",
-        }}>
-          ⚠ {error}
         </div>
       )}
 

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-// ✅ FIX: Removed the space before "http://localhost:9001"
+// ✅ FIX: Removed the space before "https://solar-backend-4bsb.onrender.com"
 // Previously: ||"https://solar-backend-4bsb.onrender.com" ← space was breaking the connection
 const SOCKET_URL = import.meta.env.VITE_API_URL ||"https://solar-backend-4bsb.onrender.com";
 
