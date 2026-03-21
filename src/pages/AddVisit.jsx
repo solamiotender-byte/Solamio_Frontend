@@ -325,7 +325,6 @@ export default function VisitDetails({ onClose, onSave }) {
 
   const handleLeadToggle = (e) => {
     setIsLeadCreated(e.target.value);
-    // clear autocomplete when switching to yes
     if (e.target.value === 'yes') { setSuggestions([]); setShowSuggestions(false); }
   };
 
@@ -339,6 +338,10 @@ export default function VisitDetails({ onClose, onSave }) {
       if (!formData.contactPerson.trim()) errors.contactPerson = 'Contact person is required';
       if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
       if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email';
+    }
+    // For 'other', only require remarks (description)
+    if (isLeadCreated === 'other') {
+      if (!formData.remarks.trim()) errors.remarks = 'Please enter a description for this visit';
     }
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
@@ -358,15 +361,15 @@ export default function VisitDetails({ onClose, onSave }) {
       fd.append('isLeadCreated', isLeadCreated);
       if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
 
-      // Send contact fields only when not 'other'
-      if (isLeadCreated !== 'other') {
+      // Send contact fields only when 'yes'
+      if (isLeadCreated === 'yes') {
         if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
         if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
         if (formData.email.trim())         fd.append('email',         formData.email.trim());
       }
       fd.append('photos', imageFile);
 
-      // Step 1 — save the visit (goes to TotalVisitsPage via /lead/visitSummary)
+      // Step 1 — save the visit
       const visitRes  = await fetch(`${BASE_URL}/visit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
@@ -375,27 +378,43 @@ export default function VisitDetails({ onClose, onSave }) {
       const visitJson = await visitRes.json();
       if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
 
-      // Step 2 — only when 'yes': create lead (goes to LeadOverview via /lead/getAll)
-      if (isLeadCreated === 'yes' && formData.contactPerson.trim()) {
-        const nameParts = formData.contactPerson.trim().split(' ');
-        const firstName = nameParts[0] || 'Unknown';
+      // ── Step 2 — create a lead record for BOTH 'yes' AND 'other' ──────────
+      // This ensures the visit shows up in TotalVisitsPage (which reads /lead/visitSummary)
+      if (isLeadCreated === 'yes' || isLeadCreated === 'other') {
+        const isYes = isLeadCreated === 'yes';
+
+        // For 'other': use "Visit" + location name as a generic placeholder name
+        const nameParts = isYes
+          ? formData.contactPerson.trim().split(' ')
+          : ['Visit', formData.locationName.trim() || 'Record'];
+
+        const firstName = nameParts[0] || 'Visit';
         const lastName  = nameParts.slice(1).join(' ') || '.';
+
+        const leadPayload = {
+          firstName,
+          lastName,
+          visitLocation: formData.locationName.trim(),
+          visitNotes:    formData.remarks.trim(),   // description saved here
+          visitStatus:   'Completed',
+          status:        isYes ? 'Visit' : 'Other', // distinguish in TotalVisitsPage
+        };
+
+        // Only attach phone/email when 'yes'
+        if (isYes) {
+          if (formData.phone.trim())  leadPayload.phone  = formData.phone.trim();
+          if (formData.email.trim())  leadPayload.email  = formData.email.trim();
+        }
+
         const leadRes = await fetch(`${BASE_URL}/lead/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify({
-            firstName, lastName,
-            phone:         formData.phone.trim(),
-            email:         formData.email.trim(),
-            visitLocation: formData.locationName.trim(),
-            visitNotes:    formData.remarks.trim(),
-            visitStatus:   'Completed',
-            status:        'Visit',
-          }),
+          body: JSON.stringify(leadPayload),
         });
         const leadJson = await leadRes.json();
         if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
       }
+      // ──────────────────────────────────────────────────────────────────────
 
       const visitData = visitJson.data || visitJson;
       setCreatedVisit(visitData);
@@ -528,43 +547,83 @@ export default function VisitDetails({ onClose, onSave }) {
                 </FormControl>
               </FormSection>
 
-              {/* ── Contact Information — hidden when 'other' ─────────────── */}
-              {isLeadCreated !== 'other' && (
+              {/* ── Contact Information — only for 'yes' ──────────────────── */}
+              {isLeadCreated === 'yes' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                       <Person /> Contact Information
-                      {isLeadCreated === 'yes' && <Chip label="Lead Created" size="small" color="success" sx={{ ml: 'auto', height: 24 }} />}
+                      <Chip label="Lead Created" size="small" color="success" sx={{ ml: 'auto', height: 24 }} />
                     </Typography>
                     <Stack spacing={2}>
 
-                      {/* Contact person with autocomplete (only when 'no') */}
+                      {/* Contact person */}
+                      <TextField
+                        fullWidth
+                        label="Contact Person *"
+                        placeholder="Enter contact name"
+                        value={formData.contactPerson}
+                        onChange={handleChange('contactPerson')}
+                        error={!!validationErrors.contactPerson}
+                        helperText={validationErrors.contactPerson}
+                        disabled={loading}
+                        size={isMobile ? 'small' : 'medium'}
+                        InputProps={{
+                          startAdornment: <InputAdornment position="start"><Person sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment>,
+                        }}
+                      />
+
+                      {/* Phone */}
+                      <TextField fullWidth label="Phone Number" placeholder="Enter phone number"
+                        value={formData.phone} onChange={handleChange('phone')}
+                        error={!!validationErrors.phone} helperText={validationErrors.phone}
+                        disabled={loading} size={isMobile ? 'small' : 'medium'}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><Phone sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
+
+                      {/* Email */}
+                      <TextField fullWidth label="Email Address" placeholder="Enter email" type="email"
+                        value={formData.email} onChange={handleChange('email')}
+                        error={!!validationErrors.email} helperText={validationErrors.email}
+                        disabled={loading} size={isMobile ? 'small' : 'medium'}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><Email sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
+                    </Stack>
+                  </FormSection>
+                </motion.div>
+              )}
+
+              {/* ── Lead autocomplete search — only for 'no' ──────────────── */}
+              {isLeadCreated === 'no' && (
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+                  <FormSection>
+                    <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
+                      <Person /> Contact Information
+                    </Typography>
+                    <Stack spacing={2}>
+                      {/* Contact person with autocomplete */}
                       <Box sx={{ position: 'relative' }}>
                         <TextField
                           fullWidth
-                          label={isLeadCreated === 'yes' ? 'Contact Person *' : 'Contact Person'}
+                          label="Contact Person"
                           placeholder="Enter contact name"
                           value={formData.contactPerson}
                           onChange={(e) => {
                             handleChange('contactPerson')(e);
-                            if (isLeadCreated === 'no') searchLeads(e.target.value);
+                            searchLeads(e.target.value);
                           }}
                           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                          onFocus={() => { if (isLeadCreated === 'no' && formData.contactPerson && suggestions.length > 0) setShowSuggestions(true); }}
-                          error={!!validationErrors.contactPerson}
-                          helperText={validationErrors.contactPerson}
+                          onFocus={() => { if (formData.contactPerson && suggestions.length > 0) setShowSuggestions(true); }}
                           disabled={loading}
                           size={isMobile ? 'small' : 'medium'}
                           InputProps={{
                             startAdornment: <InputAdornment position="start"><Person sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment>,
-                            endAdornment: searchingLeads && isLeadCreated === 'no'
+                            endAdornment: searchingLeads
                               ? <InputAdornment position="end"><CircularProgress size={16} sx={{ color: PRIMARY }} /></InputAdornment>
                               : null,
                           }}
                         />
 
-                        {/* Suggestions — only when 'no' */}
-                        {isLeadCreated === 'no' && showSuggestions && suggestions.length > 0 && (
+                        {/* Suggestions dropdown */}
+                        {showSuggestions && suggestions.length > 0 && (
                           <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, borderRadius: 2, overflow: 'hidden', border: `1px solid ${alpha(PRIMARY, 0.2)}`, mt: 0.5 }}>
                             {suggestions.map((lead, index) => (
                               <Box key={lead._id} onMouseDown={() => handleSelectSuggestion(lead)}
@@ -665,12 +724,30 @@ export default function VisitDetails({ onClose, onSave }) {
                 </Box>
               </FormSection>
 
-              {/* Remarks */}
+              {/* Remarks / Description — REQUIRED for 'other', optional otherwise */}
               <FormSection>
-                <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}><Notes /> Visit Notes</Typography>
-                <TextField fullWidth multiline rows={isMobile ? 3 : 4} placeholder="Enter any additional notes about the visit…"
-                  value={formData.remarks} onChange={handleChange('remarks')} disabled={loading}
-                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'action.hover' } }} />
+                <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
+                  <Notes /> {isLeadCreated === 'other' ? 'Description' : 'Visit Notes'}
+                  {isLeadCreated === 'other' && (
+                    <Chip label="Required" size="small" color={formData.remarks.trim() ? 'success' : 'error'} sx={{ ml: 'auto', height: 24 }} />
+                  )}
+                </Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={isMobile ? 3 : 4}
+                  placeholder={
+                    isLeadCreated === 'other'
+                      ? 'Enter a description of this visit (required)…'
+                      : 'Enter any additional notes about the visit…'
+                  }
+                  value={formData.remarks}
+                  onChange={handleChange('remarks')}
+                  disabled={loading}
+                  error={!!validationErrors.remarks}
+                  helperText={validationErrors.remarks}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'action.hover' } }}
+                />
               </FormSection>
             </Stack>
           </Grid>

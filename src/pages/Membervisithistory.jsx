@@ -363,7 +363,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
   }, [filters, targetUserId, isAdminView]);
 
   const fetchStats = useCallback(async () => {
-    try { await apiFetch("/visit/stats", { ...getDateRange(filters.dateRange), ...(isAdminView && targetUserId ? { userId: targetUserId } : {}) }); } catch {}
+    try { await apiFetch("/visit/stats/overview", { ...getDateRange(filters.dateRange), ...(isAdminView && targetUserId ? { userId: targetUserId } : {}) }); } catch {}
   }, [filters, targetUserId, isAdminView]);
 
   // Fetch total GPS km travelled from backend /location/distance
@@ -373,10 +373,10 @@ export default function MemberVisitHistory({ userId: propUserId }) {
       setGpsDistLoading(true);
       // Use today's date — matches what the location tracker saves
       const today = new Date().toISOString().split("T")[0];
-      const res = await apiFetch("/location/distance", {
-        date: today,
-        ...(isAdminView && targetUserId ? { salesmanId: targetUserId } : {}),
-      });
+     const res = await apiFetch("/location/distance", {
+  date: today,
+  salesmanId: targetUserId,   // ← always send it
+});
       const data = res?.data || res?.result || res;
       setGpsDistance({
         totalKm:     data?.totalKm     ?? 0,

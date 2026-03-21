@@ -126,6 +126,7 @@ import Save from "@mui/icons-material/Save";
 // ========== CONSTANTS & CONFIGURATION ==========
 const PRIMARY_COLOR = "#4569ea";
 const SECONDARY_COLOR = "#1a237e";
+const ERROR_COLOR = "#f44336";
 const ITEMS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 const DEFAULT_ITEMS_PER_PAGE = 20;
 
@@ -173,7 +174,7 @@ const STATUS_CONFIG = {
   },
 };
 
-// Lead Status Configuration
+// Lead Status Configuration — now includes 'Other'
 const LEAD_STATUS_CONFIG = {
   Visit: {
     bg: alpha(PRIMARY_COLOR, 0.08),
@@ -195,6 +196,14 @@ const LEAD_STATUS_CONFIG = {
     icon: <Warning sx={{ fontSize: 16 }} />,
     label: "Missed",
     description: "Lead missed or lost",
+  },
+  // ── NEW: 'Other' status for visits where isLeadCreated === 'other' ────────
+  Other: {
+    bg: alpha(PRIMARY_COLOR, 0.08),
+    color: PRIMARY_COLOR,
+    icon: <Info sx={{ fontSize: 16 }} />,
+    label: "Other",
+    description: "Other visit type — no lead created",
   },
 };
 
@@ -1065,7 +1074,7 @@ const MobileVisitCard = ({ visit, onView, onEdit }) => {
                     color="text.secondary"
                     display="block"
                   >
-                    Notes
+                    {visit.status === "Other" ? "Description" : "Notes"}
                   </Typography>
                   <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
                     {visit.visitNotes}
@@ -1157,6 +1166,9 @@ const ViewVisitModal = React.memo(
     };
 
     if (!visit) return null;
+
+    // Determine label for notes tab based on status
+    const notesLabel = visit.status === "Other" ? "Description" : "Visit Notes";
 
     const tabs = [
       {
@@ -1359,13 +1371,29 @@ const ViewVisitModal = React.memo(
                     fontWeight: 600,
                   }}
                 >
-                  <Notes sx={{ fontSize: 20 }} /> Visit Notes
+                  <Notes sx={{ fontSize: 20 }} /> {notesLabel}
                 </Typography>
                 <Typography
                   variant="body2"
                   style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
                 >
                   {visit.visitNotes}
+                </Typography>
+              </Paper>
+            )}
+            {/* Show a hint when no notes/location for 'Other' type */}
+            {visit.status === "Other" && !visit.visitNotes && (
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  borderRadius: 3,
+                  bgcolor: alpha(PRIMARY_COLOR, 0.02),
+                  border: `1px solid ${alpha(PRIMARY_COLOR, 0.1)}`,
+                }}
+              >
+                <Typography variant="body2" color="text.secondary" sx={{ fontStyle: "italic" }}>
+                  No description was provided for this visit.
                 </Typography>
               </Paper>
             )}
@@ -1490,6 +1518,7 @@ const ViewVisitModal = React.memo(
                   }}
                 >
                   Visit Details • ID: {visit._id?.slice(-8)}
+                  {visit.status === "Other" && " • Other Visit"}
                 </Typography>
               </Box>
             </Box>
@@ -1599,8 +1628,8 @@ const EditVisitModal = React.memo(
       visitLocation: "",
       status: "Visit",
       visitNotes: "",
-      locationImage: null,       
-  locationImagePreview: null, 
+      locationImage: null,
+      locationImagePreview: null,
     });
     const [validationErrors, setValidationErrors] = useState({});
 
@@ -1617,33 +1646,30 @@ const EditVisitModal = React.memo(
           status: visit.status || "Visit",
           visitNotes: visit.visitNotes || "",
           locationImage: null,
-locationImagePreview: visit.locationImageUrl || null,
+          locationImagePreview: visit.locationImageUrl || null,
         });
         setValidationErrors({});
       }
     }, [open, visit]);
 
-
-  const handleLocationImageChange = useCallback((event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (file.size > 5 * 1024 * 1024) {
-    showSnackbar("Image must be under 5MB", "error");
-    return;
-  }
-  if (!["image/jpeg", "image/jpg", "image/png"].includes(file.type)) {
-    showSnackbar("Only JPG and PNG images are allowed", "error");
-    return;
-  }
-  const previewUrl = URL.createObjectURL(file);
-  setEditForm((prev) => ({
-    ...prev,
-    locationImage: file,
-    locationImagePreview: previewUrl,
-  }));
-}, [showSnackbar]);
-
-
+    const handleLocationImageChange = useCallback((event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) {
+        showSnackbar("Image must be under 5MB", "error");
+        return;
+      }
+      if (!["image/jpeg", "image/jpg", "image/png"].includes(file.type)) {
+        showSnackbar("Only JPG and PNG images are allowed", "error");
+        return;
+      }
+      const previewUrl = URL.createObjectURL(file);
+      setEditForm((prev) => ({
+        ...prev,
+        locationImage: file,
+        locationImagePreview: previewUrl,
+      }));
+    }, [showSnackbar]);
 
     const validateForm = useCallback(() => {
       const errors = {};
@@ -1665,55 +1691,52 @@ locationImagePreview: visit.locationImageUrl || null,
     }, [editForm]);
 
     const handleSubmit = useCallback(async () => {
-  if (!validateForm()) {
-    showSnackbar("Please fix the errors in the form", "error");
-    return;
-  }
+      if (!validateForm()) {
+        showSnackbar("Please fix the errors in the form", "error");
+        return;
+      }
 
-  try {
-    let body;
-    let headers = { "Content-Type": "application/json" };
+      try {
+        let body;
+        let headers = { "Content-Type": "application/json" };
 
-    const payload = {
-      visitStatus: editForm.visitStatus,
-      ...(editForm.visitDate && { visitDate: format(editForm.visitDate, "yyyy-MM-dd") }),
-      ...(editForm.visitTime && { visitTime: editForm.visitTime.trim() }),
-      ...(editForm.visitLocation && { visitLocation: editForm.visitLocation.trim() }),
-      status: editForm.status,
-      ...(editForm.visitNotes && { visitNotes: editForm.visitNotes.trim() }),
-    };
+        const payload = {
+          visitStatus: editForm.visitStatus,
+          ...(editForm.visitDate && { visitDate: format(editForm.visitDate, "yyyy-MM-dd") }),
+          ...(editForm.visitTime && { visitTime: editForm.visitTime.trim() }),
+          ...(editForm.visitLocation && { visitLocation: editForm.visitLocation.trim() }),
+          status: editForm.status,
+          ...(editForm.visitNotes && { visitNotes: editForm.visitNotes.trim() }),
+        };
 
-    if (editForm.locationImage) {
-      const formData = new FormData();
-      Object.entries(payload).forEach(([k, v]) => formData.append(k, v));
-      formData.append("locationImage", editForm.locationImage);
-      body = formData;
-      headers = {}; // let browser set multipart boundary
-    } else {
-      body = JSON.stringify(payload);
-    }
+        if (editForm.locationImage) {
+          const formData = new FormData();
+          Object.entries(payload).forEach(([k, v]) => formData.append(k, v));
+          formData.append("locationImage", editForm.locationImage);
+          body = formData;
+          headers = {};
+        } else {
+          body = JSON.stringify(payload);
+        }
 
-    const response = await fetchAPI(`/lead/updateLead/${visit._id}`, {
-      method: "PUT",
-      headers,
-      body,
-    });
+        const response = await fetchAPI(`/lead/updateLead/${visit._id}`, {
+          method: "PUT",
+          headers,
+          body,
+        });
 
-    if (response?.success) {
-      showSnackbar("Visit updated successfully", "success");
-      onSave(response.result);
-      onClose();
-    } else {
-      throw new Error(response?.message || "Update failed");
-    }
-  } catch (error) {
-    console.error("Update error:", error);
-    showSnackbar(error.message || "Update failed", "error");
-  }
-}, [editForm, validateForm, visit, fetchAPI, showSnackbar, onSave, onClose]);
-
-
-  
+        if (response?.success) {
+          showSnackbar("Visit updated successfully", "success");
+          onSave(response.result);
+          onClose();
+        } else {
+          throw new Error(response?.message || "Update failed");
+        }
+      } catch (error) {
+        console.error("Update error:", error);
+        showSnackbar(error.message || "Update failed", "error");
+      }
+    }, [editForm, validateForm, visit, fetchAPI, showSnackbar, onSave, onClose]);
 
     const handleChange = useCallback(
       (field) => (event) => {
@@ -1727,6 +1750,12 @@ locationImagePreview: visit.locationImageUrl || null,
     );
 
     if (!visit) return null;
+
+    // Determine notes label based on visit type
+    const notesLabel = visit.status === "Other" ? "Description" : "Visit Notes";
+    const notesPlaceholder = visit.status === "Other"
+      ? "Add or update the description for this visit"
+      : "Add any notes related to this visit";
 
     return (
       <Dialog
@@ -1785,6 +1814,7 @@ locationImagePreview: visit.locationImageUrl || null,
                   sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
                 >
                   {visit.firstName} {visit.lastName}
+                  {visit.status === "Other" && " • Other Visit"}
                 </Typography>
               </Box>
             </Box>
@@ -1860,109 +1890,110 @@ locationImagePreview: visit.locationImageUrl || null,
             />
 
             <TextField
-              label="Visit Notes"
+              label={notesLabel}
               value={editForm.visitNotes}
               onChange={handleChange("visitNotes")}
               multiline
               rows={isMobile ? 2 : 3}
               fullWidth
               size="small"
-              placeholder="Add any notes related to this visit"
+              placeholder={notesPlaceholder}
             />
-            {editForm.visitStatus === "Completed" && (
-  <Box>
-    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: PRIMARY_COLOR }}>
-      Location Image
-      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-        (JPG/PNG, max 5MB)
-      </Typography>
-    </Typography>
 
-    {editForm.locationImagePreview ? (
-      <Box sx={{ width: "100%" }}>
-        <Box
-          component="img"
-          src={editForm.locationImagePreview}
-          alt="Location"
-          sx={{
-            width: "100%",
-            maxHeight: 200,
-            objectFit: "cover",
-            borderRadius: 2,
-            border: `1px solid ${alpha(PRIMARY_COLOR, 0.2)}`,
-            display: "block",
-          }}
-        />
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            component="label"
-            sx={{ borderColor: PRIMARY_COLOR, color: PRIMARY_COLOR, flex: 1 }}
-          >
-            Change Image
-            <input
-              type="file"
-              hidden
-              accept="image/jpeg,image/jpg,image/png"
-              onChange={handleLocationImageChange}
-            />
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={() =>
-              setEditForm((prev) => ({
-                ...prev,
-                locationImage: null,
-                locationImagePreview: null,
-              }))
-            }
-            sx={{ borderColor: "error.main", color: "error.main", flex: 1 }}
-          >
-            Remove
-          </Button>
-        </Stack>
-      </Box>
-    ) : (
-      <Box
-        component="label"
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 1,
-          border: "2px dashed",
-          borderColor: alpha(PRIMARY_COLOR, 0.3),
-          borderRadius: 2,
-          p: 3,
-          cursor: "pointer",
-          bgcolor: alpha(PRIMARY_COLOR, 0.02),
-          "&:hover": {
-            bgcolor: alpha(PRIMARY_COLOR, 0.05),
-            borderColor: PRIMARY_COLOR,
-          },
-          transition: "all 0.2s",
-        }}
-      >
-        <input
-          type="file"
-          hidden
-          accept="image/jpeg,image/jpg,image/png"
-          onChange={handleLocationImageChange}
-        />
-        <LocationOn sx={{ fontSize: 40, color: alpha(PRIMARY_COLOR, 0.5) }} />
-        <Typography variant="body2" color="text.secondary" textAlign="center">
-          Click to upload location photo
-        </Typography>
-        <Typography variant="caption" color="text.disabled">
-          JPG or PNG, max 5MB
-        </Typography>
-      </Box>
-    )}
-  </Box>
-)}
+            {editForm.visitStatus === "Completed" && (
+              <Box>
+                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: PRIMARY_COLOR }}>
+                  Location Image
+                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    (JPG/PNG, max 5MB)
+                  </Typography>
+                </Typography>
+
+                {editForm.locationImagePreview ? (
+                  <Box sx={{ width: "100%" }}>
+                    <Box
+                      component="img"
+                      src={editForm.locationImagePreview}
+                      alt="Location"
+                      sx={{
+                        width: "100%",
+                        maxHeight: 200,
+                        objectFit: "cover",
+                        borderRadius: 2,
+                        border: `1px solid ${alpha(PRIMARY_COLOR, 0.2)}`,
+                        display: "block",
+                      }}
+                    />
+                    <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        component="label"
+                        sx={{ borderColor: PRIMARY_COLOR, color: PRIMARY_COLOR, flex: 1 }}
+                      >
+                        Change Image
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/jpeg,image/jpg,image/png"
+                          onChange={handleLocationImageChange}
+                        />
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            locationImage: null,
+                            locationImagePreview: null,
+                          }))
+                        }
+                        sx={{ borderColor: "error.main", color: "error.main", flex: 1 }}
+                      >
+                        Remove
+                      </Button>
+                    </Stack>
+                  </Box>
+                ) : (
+                  <Box
+                    component="label"
+                    sx={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 1,
+                      border: "2px dashed",
+                      borderColor: alpha(PRIMARY_COLOR, 0.3),
+                      borderRadius: 2,
+                      p: 3,
+                      cursor: "pointer",
+                      bgcolor: alpha(PRIMARY_COLOR, 0.02),
+                      "&:hover": {
+                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        borderColor: PRIMARY_COLOR,
+                      },
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <input
+                      type="file"
+                      hidden
+                      accept="image/jpeg,image/jpg,image/png"
+                      onChange={handleLocationImageChange}
+                    />
+                    <LocationOn sx={{ fontSize: 40, color: alpha(PRIMARY_COLOR, 0.5) }} />
+                    <Typography variant="body2" color="text.secondary" textAlign="center">
+                      Click to upload location photo
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled">
+                      JPG or PNG, max 5MB
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
 
             <FormControl fullWidth size="small">
               <InputLabel>Lead Status</InputLabel>
@@ -2280,7 +2311,9 @@ export default function TotalVisitsPage() {
             (visit.lastName?.toLowerCase() || "").includes(query) ||
             (visit.email?.toLowerCase() || "").includes(query) ||
             (visit.phone || "").includes(query) ||
-            (visit.visitLocation?.toLowerCase() || "").includes(query),
+            (visit.visitLocation?.toLowerCase() || "").includes(query) ||
+            // Also search in visitNotes so 'Other' visits are findable by description
+            (visit.visitNotes?.toLowerCase() || "").includes(query),
         );
       }
 
@@ -2478,7 +2511,7 @@ export default function TotalVisitsPage() {
   }, []);
 
   const handleChangePage = (event, newPage) => {
-    setPage(newPage);
+    setPage(newPage - 1);
     if (containerRef.current) {
       containerRef.current.scrollIntoView({ behavior: "smooth" });
     }
@@ -2632,7 +2665,7 @@ export default function TotalVisitsPage() {
           onClose={handleCloseSnackbar}
           severity={snackbar.severity}
           variant="filled"
-          sx={{ width: "100%", borderRadius: 2, color: " #fff" }}
+          sx={{ width: "100%", borderRadius: 2, color: "#fff" }}
         >
           {snackbar.message}
         </Alert>
@@ -2820,7 +2853,7 @@ export default function TotalVisitsPage() {
                 <TextField
                   fullWidth
                   size="small"
-                  placeholder="Search by name, email, phone or location..."
+                  placeholder="Search by name, email, phone, location or description..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   InputProps={{
@@ -3219,6 +3252,15 @@ export default function TotalVisitsPage() {
                         py: 2,
                       }}
                     >
+                      Description / Notes
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        fontWeight: 600,
+                        py: 2,
+                      }}
+                    >
                       Status
                     </TableCell>
                     <TableCell
@@ -3246,7 +3288,16 @@ export default function TotalVisitsPage() {
                     paginatedVisits.map((visit) => (
                       <TableRow key={visit._id} hover>
                         <TableCell>
-                          {visit.firstName} {visit.lastName}
+                          <Box>
+                            <Typography variant="body2" fontWeight={600}>
+                              {visit.firstName} {visit.lastName}
+                            </Typography>
+                            {visit.status === "Other" && (
+                              <Typography variant="caption" color="text.secondary">
+                                (Other visit)
+                              </Typography>
+                            )}
+                          </Box>
                         </TableCell>
                         <TableCell>
                           {formatDate(visit.visitDate, "dd MMM yyyy")}
@@ -3254,6 +3305,19 @@ export default function TotalVisitsPage() {
                           <small>{formatTime(visit.visitTime)}</small>
                         </TableCell>
                         <TableCell>{visit.visitLocation || "—"}</TableCell>
+                        <TableCell>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              maxWidth: 200,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {visit.visitNotes || "—"}
+                          </Typography>
+                        </TableCell>
                         <TableCell>
                           <Chip
                             label={visit.visitStatus}
@@ -3263,9 +3327,14 @@ export default function TotalVisitsPage() {
                         </TableCell>
                         <TableCell>
                           <Chip
-                            label={visit.status}
+                            label={getLeadStatusConfig(visit.status).label}
+                            icon={getLeadStatusConfig(visit.status).icon}
                             size="small"
-                            sx={{ background: "#4569ea", color: "#fff" }}
+                            sx={{
+                              bgcolor: getLeadStatusConfig(visit.status).bg,
+                              color: getLeadStatusConfig(visit.status).color,
+                              fontWeight: 600,
+                            }}
                           />
                         </TableCell>
                         <TableCell>
@@ -3290,7 +3359,7 @@ export default function TotalVisitsPage() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6}>
+                      <TableCell colSpan={7}>
                         <EmptyState
                           onClearFilters={handleClearFilters}
                           hasFilters={activeFilterCount > 0}
@@ -3418,4 +3487,3 @@ export default function TotalVisitsPage() {
     </LocalizationProvider>
   );
 }
- 

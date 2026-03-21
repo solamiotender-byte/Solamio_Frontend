@@ -10,7 +10,7 @@ import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
 const API    = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
-const GKEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+const GKEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||"AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 const TTL_MS = 10 * 60 * 60 * 1000;
 
 const getToken = () =>
