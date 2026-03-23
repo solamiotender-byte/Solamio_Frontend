@@ -334,15 +334,17 @@ export default function VisitDetails({ onClose, onSave }) {
     if (!imageFile)                    errors.photo        = 'Please capture a photo';
     if (!formData.locationName.trim()) errors.locationName = 'Location name is required';
     if (!location)                     errors.location     = 'Location coordinates are required';
+
     if (isLeadCreated === 'yes') {
       if (!formData.contactPerson.trim()) errors.contactPerson = 'Contact person is required';
       if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
       if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email';
     }
-    // For 'other', only require remarks (description)
+
     if (isLeadCreated === 'other') {
       if (!formData.remarks.trim()) errors.remarks = 'Please enter a description for this visit';
     }
+
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -354,6 +356,7 @@ export default function VisitDetails({ onClose, onSave }) {
     setError(null);
 
     try {
+      // ── Step 1: save the visit ─────────────────────────────────────────
       const fd = new FormData();
       fd.append('latitude',      location.lat.toString());
       fd.append('longitude',     location.lng.toString());
@@ -361,15 +364,21 @@ export default function VisitDetails({ onClose, onSave }) {
       fd.append('isLeadCreated', isLeadCreated);
       if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
 
-      // Send contact fields only when 'yes'
       if (isLeadCreated === 'yes') {
         if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
         if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
         if (formData.email.trim())         fd.append('email',         formData.email.trim());
       }
+
+      // For 'no': also send contact fields if filled
+      if (isLeadCreated === 'no') {
+        if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
+        if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
+        if (formData.email.trim())         fd.append('email',         formData.email.trim());
+      }
+
       fd.append('photos', imageFile);
 
-      // Step 1 — save the visit
       const visitRes  = await fetch(`${BASE_URL}/visit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
@@ -378,32 +387,47 @@ export default function VisitDetails({ onClose, onSave }) {
       const visitJson = await visitRes.json();
       if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
 
-      // ── Step 2 — create a lead record for BOTH 'yes' AND 'other' ──────────
-      // This ensures the visit shows up in TotalVisitsPage (which reads /lead/visitSummary)
-      if (isLeadCreated === 'yes' || isLeadCreated === 'other') {
-        const isYes = isLeadCreated === 'yes';
+      // ── Step 2: create a lead record for ALL THREE options ─────────────
+      // This is critical — TotalVisitsPage reads from /lead/visitSummary,
+      // so every visit MUST have a matching lead record to show up there.
+      //
+      //  yes   → status "Visit"    contact person name + phone + email
+      //  no    → status "No Lead"  contact person (if entered) or location name
+      //  other → status "Other"    location name as placeholder
+      {
+        let firstName, lastName;
 
-        // For 'other': use "Visit" + location name as a generic placeholder name
-        const nameParts = isYes
-          ? formData.contactPerson.trim().split(' ')
-          : ['Visit', formData.locationName.trim() || 'Record'];
-
-        const firstName = nameParts[0] || 'Visit';
-        const lastName  = nameParts.slice(1).join(' ') || '.';
+        if (isLeadCreated === 'yes') {
+          const parts = formData.contactPerson.trim().split(' ');
+          firstName = parts[0] || 'Unknown';
+          lastName  = parts.slice(1).join(' ') || 'Contact';
+        } else if (isLeadCreated === 'no') {
+          // Use contact person if entered, otherwise fall back to location name
+          const nameSource = formData.contactPerson.trim() || formData.locationName.trim() || 'Unknown';
+          const parts = nameSource.split(' ');
+          firstName = parts[0] || 'Unknown';
+          lastName  = parts.slice(1).join(' ') || 'Visit';
+        } else {
+          // 'other' — use location name as placeholder
+          const parts = (formData.locationName.trim() || 'Visit Record').split(' ');
+          firstName = parts[0] || 'Visit';
+          lastName  = parts.slice(1).join(' ') || 'Record';
+        }
 
         const leadPayload = {
           firstName,
           lastName,
           visitLocation: formData.locationName.trim(),
-          visitNotes:    formData.remarks.trim(),   // description saved here
+          visitNotes:    formData.remarks.trim(),
           visitStatus:   'Completed',
-          status:        isYes ? 'Visit' : 'Other', // distinguish in TotalVisitsPage
+          // Always "Visit" — every created visit automatically gets Visit status
+          status: 'Visit',
         };
 
-        // Only attach phone/email when 'yes'
-        if (isYes) {
-          if (formData.phone.trim())  leadPayload.phone  = formData.phone.trim();
-          if (formData.email.trim())  leadPayload.email  = formData.email.trim();
+        // Attach phone & email for yes and no
+        if (isLeadCreated === 'yes' || isLeadCreated === 'no') {
+          if (formData.phone.trim()) leadPayload.phone = formData.phone.trim();
+          if (formData.email.trim()) leadPayload.email = formData.email.trim();
         }
 
         const leadRes = await fetch(`${BASE_URL}/lead/create`, {
@@ -414,8 +438,8 @@ export default function VisitDetails({ onClose, onSave }) {
         const leadJson = await leadRes.json();
         if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
       }
-      // ──────────────────────────────────────────────────────────────────────
 
+      // ── reset ──────────────────────────────────────────────────────────
       const visitData = visitJson.data || visitJson;
       setCreatedVisit(visitData);
       setSuccess(true);
@@ -532,7 +556,7 @@ export default function VisitDetails({ onClose, onSave }) {
           <Grid item xs={12} md={6}>
             <Stack spacing={2}>
 
-              {/* ── Lead toggle: Yes / No / Other ────────────────────────── */}
+              {/* Lead toggle */}
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <PersonAdd /> New Lead Created?
@@ -547,7 +571,7 @@ export default function VisitDetails({ onClose, onSave }) {
                 </FormControl>
               </FormSection>
 
-              {/* ── Contact Information — only for 'yes' ──────────────────── */}
+              {/* YES — Contact info + lead chip */}
               {isLeadCreated === 'yes' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
@@ -556,31 +580,16 @@ export default function VisitDetails({ onClose, onSave }) {
                       <Chip label="Lead Created" size="small" color="success" sx={{ ml: 'auto', height: 24 }} />
                     </Typography>
                     <Stack spacing={2}>
-
-                      {/* Contact person */}
-                      <TextField
-                        fullWidth
-                        label="Contact Person *"
-                        placeholder="Enter contact name"
-                        value={formData.contactPerson}
-                        onChange={handleChange('contactPerson')}
-                        error={!!validationErrors.contactPerson}
-                        helperText={validationErrors.contactPerson}
-                        disabled={loading}
-                        size={isMobile ? 'small' : 'medium'}
-                        InputProps={{
-                          startAdornment: <InputAdornment position="start"><Person sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment>,
-                        }}
-                      />
-
-                      {/* Phone */}
+                      <TextField fullWidth label="Contact Person *" placeholder="Enter contact name"
+                        value={formData.contactPerson} onChange={handleChange('contactPerson')}
+                        error={!!validationErrors.contactPerson} helperText={validationErrors.contactPerson}
+                        disabled={loading} size={isMobile ? 'small' : 'medium'}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><Person sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
                       <TextField fullWidth label="Phone Number" placeholder="Enter phone number"
                         value={formData.phone} onChange={handleChange('phone')}
                         error={!!validationErrors.phone} helperText={validationErrors.phone}
                         disabled={loading} size={isMobile ? 'small' : 'medium'}
                         InputProps={{ startAdornment: <InputAdornment position="start"><Phone sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
-
-                      {/* Email */}
                       <TextField fullWidth label="Email Address" placeholder="Enter email" type="email"
                         value={formData.email} onChange={handleChange('email')}
                         error={!!validationErrors.email} helperText={validationErrors.email}
@@ -591,12 +600,13 @@ export default function VisitDetails({ onClose, onSave }) {
                 </motion.div>
               )}
 
-              {/* ── Lead autocomplete search — only for 'no' ──────────────── */}
+              {/* NO — same contact fields, saves as "No Lead" in leads table */}
               {isLeadCreated === 'no' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                       <Person /> Contact Information
+                      <Chip label="No Lead" size="small" color="warning" sx={{ ml: 'auto', height: 24 }} />
                     </Typography>
                     <Stack spacing={2}>
                       {/* Contact person with autocomplete */}
@@ -606,10 +616,7 @@ export default function VisitDetails({ onClose, onSave }) {
                           label="Contact Person"
                           placeholder="Enter contact name"
                           value={formData.contactPerson}
-                          onChange={(e) => {
-                            handleChange('contactPerson')(e);
-                            searchLeads(e.target.value);
-                          }}
+                          onChange={(e) => { handleChange('contactPerson')(e); searchLeads(e.target.value); }}
                           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                           onFocus={() => { if (formData.contactPerson && suggestions.length > 0) setShowSuggestions(true); }}
                           disabled={loading}
@@ -621,8 +628,6 @@ export default function VisitDetails({ onClose, onSave }) {
                               : null,
                           }}
                         />
-
-                        {/* Suggestions dropdown */}
                         {showSuggestions && suggestions.length > 0 && (
                           <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, borderRadius: 2, overflow: 'hidden', border: `1px solid ${alpha(PRIMARY, 0.2)}`, mt: 0.5 }}>
                             {suggestions.map((lead, index) => (
@@ -646,15 +651,11 @@ export default function VisitDetails({ onClose, onSave }) {
                           </Paper>
                         )}
                       </Box>
-
-                      {/* Phone */}
                       <TextField fullWidth label="Phone Number" placeholder="Enter phone number"
                         value={formData.phone} onChange={handleChange('phone')}
                         error={!!validationErrors.phone} helperText={validationErrors.phone}
                         disabled={loading} size={isMobile ? 'small' : 'medium'}
                         InputProps={{ startAdornment: <InputAdornment position="start"><Phone sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
-
-                      {/* Email */}
                       <TextField fullWidth label="Email Address" placeholder="Enter email" type="email"
                         value={formData.email} onChange={handleChange('email')}
                         error={!!validationErrors.email} helperText={validationErrors.email}
@@ -724,7 +725,7 @@ export default function VisitDetails({ onClose, onSave }) {
                 </Box>
               </FormSection>
 
-              {/* Remarks / Description — REQUIRED for 'other', optional otherwise */}
+              {/* Remarks / Description — required for 'other', optional for yes/no */}
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <Notes /> {isLeadCreated === 'other' ? 'Description' : 'Visit Notes'}
@@ -749,6 +750,7 @@ export default function VisitDetails({ onClose, onSave }) {
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'action.hover' } }}
                 />
               </FormSection>
+
             </Stack>
           </Grid>
         </Grid>
