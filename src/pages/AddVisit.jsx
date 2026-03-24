@@ -170,27 +170,27 @@ export default function VisitDetails({ onClose, onSave }) {
   const navigate = useNavigate();
   const cameraInputRef = useRef(null);
 
-  const [loading,          setLoading]          = useState(false);
-  const [location,         setLocation]         = useState(null);
-  const [locationLoading,  setLocationLoading]  = useState(true);
-  const [locationAttempts, setLocationAttempts] = useState(0);
-  const [geocoding,        setGeocoding]        = useState(false);
-  const [imageFile,        setImageFile]        = useState(null);
-  const [preview,          setPreview]          = useState(null);
-  const [formData,         setFormData]         = useState({
+  const [loading,           setLoading]           = useState(false);
+  const [location,          setLocation]          = useState(null);
+  const [locationLoading,   setLocationLoading]   = useState(true);
+  const [locationAttempts,  setLocationAttempts]  = useState(0);
+  const [geocoding,         setGeocoding]         = useState(false);
+  const [imageFile,         setImageFile]         = useState(null);
+  const [preview,           setPreview]           = useState(null);
+  const [formData,          setFormData]          = useState({
     locationName: '', remarks: '', contactPerson: '', phone: '', email: '',
   });
 
   // 'yes' | 'no' | 'other'
-  const [isLeadCreated,    setIsLeadCreated]    = useState('no');
+  const [isLeadCreated,     setIsLeadCreated]     = useState('no');
 
-  const [error,            setError]            = useState(null);
-  const [success,          setSuccess]          = useState(false);
-  const [createdVisit,     setCreatedVisit]     = useState(null);
-  const [validationErrors, setValidationErrors] = useState({});
-  const [bottomNav,        setBottomNav]        = useState(0);
-  const [fullscreenImage,  setFullscreenImage]  = useState(false);
-  const [isOnline,         setIsOnline]         = useState(navigator.onLine);
+  const [error,             setError]             = useState(null);
+  const [success,           setSuccess]           = useState(false);
+  const [createdVisit,      setCreatedVisit]      = useState(null);
+  const [validationErrors,  setValidationErrors]  = useState({});
+  const [bottomNav,         setBottomNav]         = useState(0);
+  const [fullscreenImage,   setFullscreenImage]   = useState(false);
+  const [isOnline,          setIsOnline]          = useState(navigator.onLine);
 
   // autocomplete
   const [suggestions,     setSuggestions]     = useState([]);
@@ -325,8 +325,8 @@ export default function VisitDetails({ onClose, onSave }) {
 
   const handleLeadToggle = (e) => {
     setIsLeadCreated(e.target.value);
-    setSuggestions([]);
-    setShowSuggestions(false);
+    // clear autocomplete when switching to yes
+    if (e.target.value === 'yes') { setSuggestions([]); setShowSuggestions(false); }
   };
 
   // ── validation ────────────────────────────────────────────────────────────
@@ -335,17 +335,16 @@ export default function VisitDetails({ onClose, onSave }) {
     if (!imageFile)                    errors.photo        = 'Please capture a photo';
     if (!formData.locationName.trim()) errors.locationName = 'Location name is required';
     if (!location)                     errors.location     = 'Location coordinates are required';
-
+    // 'yes' requires contact person; 'no' allows optional; 'other' skips contact entirely
     if (isLeadCreated === 'yes') {
       if (!formData.contactPerson.trim()) errors.contactPerson = 'Contact person is required';
       if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
       if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email';
     }
-
-    if (isLeadCreated === 'other') {
-      if (!formData.remarks.trim()) errors.remarks = 'Please enter a description for this visit';
+    if (isLeadCreated === 'no') {
+      if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
+      if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email';
     }
-
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -357,55 +356,53 @@ export default function VisitDetails({ onClose, onSave }) {
     setError(null);
 
     try {
-      // ── Step 1: save the visit ─────────────────────────────────────────
       const fd = new FormData();
       fd.append('latitude',      location.lat.toString());
       fd.append('longitude',     location.lng.toString());
       fd.append('locationName',  formData.locationName.trim());
       fd.append('isLeadCreated', isLeadCreated);
-      if (formData.remarks.trim())       fd.append('remarks',       formData.remarks.trim());
-      if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
-      if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
-      if (formData.email.trim())         fd.append('email',         formData.email.trim());
+      if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
+
+      // Send contact fields only when not 'other' — 'other' is completely untouched
+      if (isLeadCreated !== 'other') {
+        if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
+        if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
+        if (formData.email.trim())         fd.append('email',         formData.email.trim());
+      }
       fd.append('photos', imageFile);
 
+      // Step 1 — save the visit
       const visitRes  = await fetch(`${BASE_URL}/visit`, {
-        method:  'POST',
+        method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
-        body:    fd,
+        body: fd,
       });
       const visitJson = await visitRes.json();
       if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
 
-      // ── Step 2: create lead — always status 'Visit' for YES, NO, OTHER ─
-      {
-        const nameSource = formData.contactPerson.trim() || formData.locationName.trim() || 'Unknown';
-        const parts      = nameSource.split(' ');
-        const firstName  = parts[0] || 'Unknown';
-        const lastName   = parts.slice(1).join(' ') || 'Visit';
-
-        const leadPayload = {
-          firstName,
-          lastName,
-          visitLocation: formData.locationName.trim(),
-          visitNotes:    formData.remarks.trim(),
-          visitStatus:   'Completed',
-          status:        'Visit',           // always 'Visit' regardless of Yes / No / Other
-        };
-
-        if (formData.phone.trim()) leadPayload.phone = formData.phone.trim();
-        if (formData.email.trim()) leadPayload.email = formData.email.trim();
-
-        const leadRes  = await fetch(`${BASE_URL}/lead/create`, {
-          method:  'POST',
+      // Step 2 — create lead for BOTH 'yes' AND 'no' using identical logic
+      // 'other' is fully skipped — only the visit above is saved, nothing else
+      if ((isLeadCreated === 'yes' || isLeadCreated === 'no') && formData.contactPerson.trim()) {
+        const nameParts = formData.contactPerson.trim().split(' ');
+        const firstName = nameParts[0] || 'Unknown';
+        const lastName  = nameParts.slice(1).join(' ') || '.';
+        const leadRes = await fetch(`${BASE_URL}/lead/create`, {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-          body:    JSON.stringify(leadPayload),
+          body: JSON.stringify({
+            firstName, lastName,
+            phone:         formData.phone.trim(),
+            email:         formData.email.trim(),
+            visitLocation: formData.locationName.trim(),
+            visitNotes:    formData.remarks.trim(),
+            visitStatus:   'Completed',
+            status:        'Visit',
+          }),
         });
         const leadJson = await leadRes.json();
         if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
       }
 
-      // ── reset ──────────────────────────────────────────────────────────
       const visitData = visitJson.data || visitJson;
       setCreatedVisit(visitData);
       setSuccess(true);
@@ -425,65 +422,6 @@ export default function VisitDetails({ onClose, onSave }) {
 
   const canSubmit = !loading && !!location && !!imageFile && !!formData.locationName.trim();
   const mapCenter = location ? [location.lat, location.lng] : [22.5726, 88.3639];
-
-  // ── shared contact fields UI ──────────────────────────────────────────────
-  const renderContactFields = () => (
-    <Stack spacing={2}>
-      <Box sx={{ position: 'relative' }}>
-        <TextField
-          fullWidth
-          label={isLeadCreated === 'yes' ? 'Contact Person *' : 'Contact Person'}
-          placeholder="Enter contact name"
-          value={formData.contactPerson}
-          onChange={(e) => { handleChange('contactPerson')(e); searchLeads(e.target.value); }}
-          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-          onFocus={() => { if (formData.contactPerson && suggestions.length > 0) setShowSuggestions(true); }}
-          disabled={loading}
-          size={isMobile ? 'small' : 'medium'}
-          error={!!validationErrors.contactPerson}
-          helperText={validationErrors.contactPerson}
-          InputProps={{
-            startAdornment: <InputAdornment position="start"><Person sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment>,
-            endAdornment: searchingLeads
-              ? <InputAdornment position="end"><CircularProgress size={16} sx={{ color: PRIMARY }} /></InputAdornment>
-              : null,
-          }}
-        />
-        {showSuggestions && suggestions.length > 0 && (
-          <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, borderRadius: 2, overflow: 'hidden', border: `1px solid ${alpha(PRIMARY, 0.2)}`, mt: 0.5 }}>
-            {suggestions.map((lead, index) => (
-              <Box key={lead._id} onMouseDown={() => handleSelectSuggestion(lead)}
-                sx={{ px: 2, py: 1.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5,
-                  borderBottom: index < suggestions.length - 1 ? `1px solid ${alpha(PRIMARY, 0.08)}` : 'none',
-                  '&:hover': { bgcolor: alpha(PRIMARY, 0.06) }, transition: 'background 0.15s' }}>
-                <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: alpha(PRIMARY, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Typography variant="caption" fontWeight={700} color={PRIMARY}>{lead.firstName?.[0]}{lead.lastName?.[0]}</Typography>
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" fontWeight={700} noWrap>{lead.firstName} {lead.lastName}</Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    {lead.phone && <Typography variant="caption" color="text.secondary" noWrap>📞 {lead.phone}</Typography>}
-                    {lead.email && <Typography variant="caption" color="text.secondary" noWrap>✉ {lead.email}</Typography>}
-                  </Stack>
-                </Box>
-                {lead.status && <Chip label={lead.status} size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700, bgcolor: alpha(PRIMARY, 0.1), color: PRIMARY, flexShrink: 0 }} />}
-              </Box>
-            ))}
-          </Paper>
-        )}
-      </Box>
-      <TextField fullWidth label="Phone Number" placeholder="Enter phone number"
-        value={formData.phone} onChange={handleChange('phone')}
-        error={!!validationErrors.phone} helperText={validationErrors.phone}
-        disabled={loading} size={isMobile ? 'small' : 'medium'}
-        InputProps={{ startAdornment: <InputAdornment position="start"><Phone sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
-      <TextField fullWidth label="Email Address" placeholder="Enter email" type="email"
-        value={formData.email} onChange={handleChange('email')}
-        error={!!validationErrors.email} helperText={validationErrors.email}
-        disabled={loading} size={isMobile ? 'small' : 'medium'}
-        InputProps={{ startAdornment: <InputAdornment position="start"><Email sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
-    </Stack>
-  );
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: isMobile ? 8 : 4 }}>
@@ -581,7 +519,7 @@ export default function VisitDetails({ onClose, onSave }) {
           <Grid item xs={12} md={6}>
             <Stack spacing={2}>
 
-              {/* Lead toggle */}
+              {/* ── Lead toggle: Yes / No / Other ────────────────────────── */}
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <PersonAdd /> New Lead Created?
@@ -596,28 +534,80 @@ export default function VisitDetails({ onClose, onSave }) {
                 </FormControl>
               </FormSection>
 
-              {/* YES — contact info */}
-              {isLeadCreated === 'yes' && (
+              {/* ── Contact Information — shown for 'yes' and 'no', hidden for 'other' ── */}
+              {isLeadCreated !== 'other' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                       <Person /> Contact Information
-                      <Chip label="Lead Created" size="small" color="success" sx={{ ml: 'auto', height: 24 }} />
+                      {isLeadCreated === 'yes' && <Chip label="Lead Created" size="small" color="success" sx={{ ml: 'auto', height: 24 }} />}
                     </Typography>
-                    {renderContactFields()}
-                  </FormSection>
-                </motion.div>
-              )}
+                    <Stack spacing={2}>
 
-              {/* NO — same contact fields */}
-              {isLeadCreated === 'no' && (
-                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-                  <FormSection>
-                    <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
-                      <Person /> Contact Information
-                      <Chip label="No Lead" size="small" color="warning" sx={{ ml: 'auto', height: 24 }} />
-                    </Typography>
-                    {renderContactFields()}
+                      {/* Contact person with autocomplete (only when 'no') */}
+                      <Box sx={{ position: 'relative' }}>
+                        <TextField
+                          fullWidth
+                          label={isLeadCreated === 'yes' ? 'Contact Person *' : 'Contact Person'}
+                          placeholder="Enter contact name"
+                          value={formData.contactPerson}
+                          onChange={(e) => {
+                            handleChange('contactPerson')(e);
+                            if (isLeadCreated === 'no') searchLeads(e.target.value);
+                          }}
+                          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                          onFocus={() => { if (isLeadCreated === 'no' && formData.contactPerson && suggestions.length > 0) setShowSuggestions(true); }}
+                          error={!!validationErrors.contactPerson}
+                          helperText={validationErrors.contactPerson}
+                          disabled={loading}
+                          size={isMobile ? 'small' : 'medium'}
+                          InputProps={{
+                            startAdornment: <InputAdornment position="start"><Person sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment>,
+                            endAdornment: searchingLeads && isLeadCreated === 'no'
+                              ? <InputAdornment position="end"><CircularProgress size={16} sx={{ color: PRIMARY }} /></InputAdornment>
+                              : null,
+                          }}
+                        />
+
+                        {/* Suggestions — only when 'no' */}
+                        {isLeadCreated === 'no' && showSuggestions && suggestions.length > 0 && (
+                          <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, borderRadius: 2, overflow: 'hidden', border: `1px solid ${alpha(PRIMARY, 0.2)}`, mt: 0.5 }}>
+                            {suggestions.map((lead, index) => (
+                              <Box key={lead._id} onMouseDown={() => handleSelectSuggestion(lead)}
+                                sx={{ px: 2, py: 1.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5,
+                                  borderBottom: index < suggestions.length - 1 ? `1px solid ${alpha(PRIMARY, 0.08)}` : 'none',
+                                  '&:hover': { bgcolor: alpha(PRIMARY, 0.06) }, transition: 'background 0.15s' }}>
+                                <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: alpha(PRIMARY, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                  <Typography variant="caption" fontWeight={700} color={PRIMARY}>{lead.firstName?.[0]}{lead.lastName?.[0]}</Typography>
+                                </Box>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Typography variant="body2" fontWeight={700} noWrap>{lead.firstName} {lead.lastName}</Typography>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    {lead.phone && <Typography variant="caption" color="text.secondary" noWrap>📞 {lead.phone}</Typography>}
+                                    {lead.email && <Typography variant="caption" color="text.secondary" noWrap>✉ {lead.email}</Typography>}
+                                  </Stack>
+                                </Box>
+                                {lead.status && <Chip label={lead.status} size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700, bgcolor: alpha(PRIMARY, 0.1), color: PRIMARY, flexShrink: 0 }} />}
+                              </Box>
+                            ))}
+                          </Paper>
+                        )}
+                      </Box>
+
+                      {/* Phone */}
+                      <TextField fullWidth label="Phone Number" placeholder="Enter phone number"
+                        value={formData.phone} onChange={handleChange('phone')}
+                        error={!!validationErrors.phone} helperText={validationErrors.phone}
+                        disabled={loading} size={isMobile ? 'small' : 'medium'}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><Phone sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
+
+                      {/* Email */}
+                      <TextField fullWidth label="Email Address" placeholder="Enter email" type="email"
+                        value={formData.email} onChange={handleChange('email')}
+                        error={!!validationErrors.email} helperText={validationErrors.email}
+                        disabled={loading} size={isMobile ? 'small' : 'medium'}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><Email sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
+                    </Stack>
                   </FormSection>
                 </motion.div>
               )}
@@ -683,21 +673,11 @@ export default function VisitDetails({ onClose, onSave }) {
 
               {/* Remarks */}
               <FormSection>
-                <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
-                  <Notes /> {isLeadCreated === 'other' ? 'Description' : 'Visit Notes'}
-                  {isLeadCreated === 'other' && (
-                    <Chip label="Required" size="small" color={formData.remarks.trim() ? 'success' : 'error'} sx={{ ml: 'auto', height: 24 }} />
-                  )}
-                </Typography>
-                <TextField
-                  fullWidth multiline rows={isMobile ? 3 : 4}
-                  placeholder={isLeadCreated === 'other' ? 'Enter a description of this visit (required)…' : 'Enter any additional notes about the visit…'}
-                  value={formData.remarks} onChange={handleChange('remarks')}
-                  disabled={loading} error={!!validationErrors.remarks} helperText={validationErrors.remarks}
-                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'action.hover' } }}
-                />
+                <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}><Notes /> Visit Notes</Typography>
+                <TextField fullWidth multiline rows={isMobile ? 3 : 4} placeholder="Enter any additional notes about the visit…"
+                  value={formData.remarks} onChange={handleChange('remarks')} disabled={loading}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'action.hover' } }} />
               </FormSection>
-
             </Stack>
           </Grid>
         </Grid>
