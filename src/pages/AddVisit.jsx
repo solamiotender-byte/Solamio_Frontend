@@ -350,10 +350,11 @@ export default function VisitDetails({ onClose, onSave }) {
   };
 
   // ── submit ────────────────────────────────────────────────────────────────
-  const handleSubmit = async () => {
+const handleSubmit = async () => {
     if (!validate()) { setError('Please fill all required fields correctly'); return; }
     setLoading(true);
     setError(null);
+    const now = new Date(); 
 
     try {
       const fd = new FormData();
@@ -370,7 +371,10 @@ export default function VisitDetails({ onClose, onSave }) {
         if (formData.email.trim())         fd.append('email',         formData.email.trim());
       }
       fd.append('photos', imageFile);
-
+fd.append('visitDate', now.toISOString().split('T')[0]);
+fd.append('visitTime', now.toTimeString().slice(0, 5));
+fd.append('visitStatus', 'Completed');
+fd.append('photos', imageFile);
       // Step 1 — save the visit
       const visitRes  = await fetch(`${BASE_URL}/visit`, {
         method: 'POST',
@@ -394,6 +398,8 @@ export default function VisitDetails({ onClose, onSave }) {
             phone:         formData.phone.trim(),
             email:         formData.email.trim(),
             visitLocation: formData.locationName.trim(),
+             visitDate:     now.toISOString().split('T')[0], // 👈 ADD
+            visitTime:now.toTimeString().slice(0, 5),  // 👈 ADD
             visitNotes:    formData.remarks.trim(),
             visitStatus:   'Completed',
             status:        'Visit',
@@ -402,7 +408,23 @@ export default function VisitDetails({ onClose, onSave }) {
         const leadJson = await leadRes.json();
         if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
       }
-
+// Step 3 — other: save description as visitNotes only
+if (isLeadCreated === 'other' && formData.remarks.trim()) {
+  const leadRes = await fetch(`${BASE_URL}/lead/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({
+      firstName:     'Other',
+      lastName:      'Visit',
+      visitLocation: formData.locationName.trim(),
+      visitNotes:    formData.remarks.trim(),
+      visitStatus:   'Completed',
+      status:        'Visit',
+    }),
+  });
+  const leadJson = await leadRes.json();
+  if (!leadRes.ok) console.warn('Other visit save failed:', leadJson.message);
+}
       const visitData = visitJson.data || visitJson;
       setCreatedVisit(visitData);
       setSuccess(true);

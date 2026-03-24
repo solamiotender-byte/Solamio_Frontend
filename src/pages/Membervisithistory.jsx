@@ -48,7 +48,6 @@ const sBg    = (s) => ({ Completed: "#dcfce7", InProgress: alpha(PRIMARY, 0.1), 
 const getDateRange = (r) => {
   const now = new Date(), today = new Date(now);
   today.setHours(0, 0, 0, 0);
-  // "today" uses current time as endDate so punch-out visits are always included
   if (r === "today")     return { startDate: today.toISOString(), endDate: now.toISOString() };
   if (r === "yesterday") { const y = new Date(today.getTime() - 86400000); return { startDate: y.toISOString(), endDate: new Date(today.getTime() - 1).toISOString() }; }
   if (r === "week")      { const w = new Date(today); w.setDate(today.getDate() - today.getDay()); return { startDate: w.toISOString(), endDate: now.toISOString() }; }
@@ -56,29 +55,15 @@ const getDateRange = (r) => {
   return {};
 };
 
-// ─── Visit Card — matches screenshot design ───────────────────────────────────
+// ─── Visit Card ───────────────────────────────────────────────────────────────
 const VisitCard = ({ visit: v, index, isLast }) => {
   const cur     = v.status === "InProgress";
-  const isStart = v.locationName === "Start Location";
+  const [imgOpen, setImgOpen] = useState(false);
 
-  // Icon background color per type
-  const iconBg =
-    isStart ? "#64748b"
-    : cur    ? PRIMARY
-    : v.status === "Completed" ? PRIMARY
-    : v.status === "Cancelled" ? ERROR
-    : "#94a3b8";
-
-  // Pick icon based on location type hint
-  const getIcon = () => {
-    const name = (v.locationName || "").toLowerCase();
-    if (isStart || cur) return <MyLocation sx={{ fontSize: 17, color: "#fff" }} />;
-    if (name.includes("coffee") || name.includes("cafe") || name.includes("restaurant") || name.includes("food"))
-      return <span style={{ fontSize: 16 }}>🍴</span>;
-    if (name.includes("hotel") || name.includes("lodge"))
-      return <span style={{ fontSize: 16 }}>🏨</span>;
-    return <Store sx={{ fontSize: 17, color: "#fff" }} />;
-  };
+  const photoUrl = v.photos?.[0]?.url
+    || (typeof v.photos?.[0] === 'string' ? v.photos[0] : null)
+    || v.photo
+    || null;
 
   const address = (() => {
     if (!v.address) return "";
@@ -86,126 +71,188 @@ const VisitCard = ({ visit: v, index, isLast }) => {
     return (v.address?.full || v.address?.short || "").trim();
   })();
 
-  const timeRange = v.checkInTime
-    ? `${fmt(v.checkInTime)}${v.checkOutTime ? ` — ${fmt(v.checkOutTime)}` : ""}`
+  const displayTime = v.checkInTime
+    ? fmt(v.checkInTime)
+    : v.createdAt
+    ? fmt(v.createdAt)
+    : v.visitTime || null;
+  const displayDate = v.visitDate
+    ? new Date(v.visitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
     : null;
 
   return (
     <Box sx={{ display: "flex", gap: 2, pb: isLast ? 0 : 3, position: "relative" }}>
 
-      {/* Left — icon + connector line */}
+      {/* Left — circle icon + connector line */}
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
         <Box sx={{
           width: 40, height: 40, borderRadius: "50%",
-          bgcolor: iconBg,
+          bgcolor: PRIMARY,
           display: "flex", alignItems: "center", justifyContent: "center",
           flexShrink: 0, zIndex: 1,
-          boxShadow: cur ? `0 0 0 4px ${alpha(PRIMARY, 0.2)}` : `0 2px 8px ${alpha(iconBg, 0.3)}`,
-          ...(cur && { animation: "pl 1.5s ease-in-out infinite", "@keyframes pl": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.6 } } }),
+          boxShadow: `0 2px 8px ${alpha(PRIMARY, 0.3)}`,
+          ...(cur && {
+            animation: "pl 1.5s ease-in-out infinite",
+            "@keyframes pl": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.6 } }
+          }),
         }}>
-          {getIcon()}
+          <Store sx={{ fontSize: 17, color: "#fff" }} />
         </Box>
         {!isLast && (
           <Box sx={{ width: 2, flex: 1, minHeight: 24, bgcolor: "#e8edf2", mt: 0.5, borderRadius: 1 }} />
         )}
       </Box>
 
-      {/* Right — content */}
+      {/* Middle — location name + time + address */}
       <Box sx={{ flex: 1, minWidth: 0, pt: 0.25 }}>
 
-        {/* Title row */}
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1, mb: 0.4 }}>
-          <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem", lineHeight: 1.3, flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 0.4 }}>
+          <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem", lineHeight: 1.3 }}>
             {v.locationName || `Stop ${index + 1}`}
           </Typography>
-          {v.checkInTime && (
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8", flexShrink: 0, mt: "1px" }}>
-              {fmt(v.checkInTime)}
+          {(displayTime || displayDate) && (
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8", flexShrink: 0 }}>
+              {displayDate && displayTime
+                ? `${displayDate} · ${displayTime}`
+                : displayTime || displayDate}
             </Typography>
           )}
         </Box>
 
-        {/* Address — full street address shown below visit name */}
         {address && (
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.6 }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.5 }}>
             <LocationOn sx={{ fontSize: 12, color: PRIMARY, mt: "2px", flexShrink: 0 }} />
             <Typography sx={{
-              color: "#475569", fontSize: "0.75rem",
-              lineHeight: 1.4,
-              // Show up to 2 lines then ellipsis
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
+              color: "#475569", fontSize: "0.75rem", lineHeight: 1.4,
+              display: "-webkit-box", WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>
               {address}
             </Typography>
           </Box>
         )}
 
-        {/* Check-in / check-out time row */}
-        {timeRange && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.6 }}>
-            <AccessTime sx={{ fontSize: 12, color: "#94a3b8" }} />
-            <Typography sx={{ fontSize: "0.73rem", color: "#475569", fontWeight: 500 }}>
-              {timeRange}
-            </Typography>
-            {v.timeSpentMinutes > 0 && (
-              <Typography sx={{ fontSize: "0.7rem", color: "#94a3b8" }}>
-                · {v.timeSpentMinutes >= 60 ? `${Math.floor(v.timeSpentMinutes / 60)}h ${v.timeSpentMinutes % 60}m` : `${v.timeSpentMinutes} min`}
-              </Typography>
-            )}
-          </Box>
-        )}
-
-        {/* Remarks */}
         {v.remarks && (
-          <Box sx={{ bgcolor: "#f8fafc", borderRadius: "8px", px: 1.5, py: 1, mt: 0.25, mb: 0.5, borderLeft: `3px solid #e2e8f0` }}>
+          <Box sx={{ bgcolor: "#f8fafc", borderRadius: "8px", px: 1.5, py: 1, mt: 0.25, borderLeft: "3px solid #e2e8f0" }}>
             <Typography sx={{ color: "#64748b", fontSize: "0.73rem", fontStyle: "italic", lineHeight: 1.6 }}>
               "{v.remarks}"
             </Typography>
           </Box>
         )}
 
-        {/* Tags row */}
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 0.25 }}>
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 0.5 }}>
           {v.distanceFromPreviousKm > 0 && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
               <Route sx={{ fontSize: 11, color: "#94a3b8" }} />
-              <Typography sx={{ fontSize: "0.68rem", color: "#94a3b8" }}>{v.distanceFromPreviousKm.toFixed(2)} km</Typography>
-            </Box>
-          )}
-          {v.verified && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
-              <VerifiedUser sx={{ fontSize: 11, color: SUCCESS }} />
-              <Typography sx={{ fontSize: "0.68rem", color: SUCCESS, fontWeight: 600 }}>Verified</Typography>
+              <Typography sx={{ fontSize: "0.68rem", color: "#94a3b8" }}>
+                {v.distanceFromPreviousKm.toFixed(2)} km
+              </Typography>
             </Box>
           )}
           {v.photos?.length > 0 && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
               <PhotoCamera sx={{ fontSize: 11, color: "#94a3b8" }} />
-              <Typography sx={{ fontSize: "0.68rem", color: "#94a3b8" }}>{v.photos.length} photo{v.photos.length > 1 ? "s" : ""}</Typography>
+              <Typography sx={{ fontSize: "0.68rem", color: "#94a3b8" }}>
+                {v.photos.length} photo{v.photos.length > 1 ? "s" : ""}
+              </Typography>
             </Box>
           )}
           {v.isLeadCreate && (
-            <Chip label="Lead Created" size="small" sx={{ bgcolor: alpha(WARNING, 0.1), color: WARNING, fontWeight: 700, fontSize: "0.6rem", height: 18 }} />
+            <Chip label="Lead Created" size="small"
+              sx={{ bgcolor: alpha(WARNING, 0.1), color: WARNING, fontWeight: 700, fontSize: "0.6rem", height: 18 }} />
           )}
         </Box>
-
-        {/* In-progress action buttons */}
-        {cur && (
-          <Box sx={{ display: "flex", gap: 1, mt: 1.25 }}>
-            <Button size="small" variant="contained" startIcon={<CheckCircle sx={{ fontSize: 13 }} />}
-              sx={{ bgcolor: SUCCESS, color: "#fff", fontWeight: 700, fontSize: "0.72rem", textTransform: "none", borderRadius: "8px", px: 1.75, py: 0.6, "&:hover": { bgcolor: "#16a34a" } }}>
-              Complete
-            </Button>
-            <Button size="small" variant="outlined" startIcon={<Cancel sx={{ fontSize: 13 }} />}
-              sx={{ borderColor: ERROR, color: ERROR, fontWeight: 700, fontSize: "0.72rem", textTransform: "none", borderRadius: "8px", px: 1.75, py: 0.6 }}>
-              Cancel
-            </Button>
-          </Box>
-        )}
       </Box>
+
+      {/* RIGHT — Photo thumbnail */}
+      {photoUrl && (
+        <>
+          <Box
+            onClick={() => setImgOpen(true)}
+            sx={{
+              width: 72, height: 72, borderRadius: "10px",
+              overflow: "hidden", flexShrink: 0,
+              border: "2px solid #e2e8f0",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              alignSelf: "flex-start",
+              mt: 0.25,
+              cursor: "pointer",
+              transition: "transform 0.2s, box-shadow 0.2s",
+              "&:hover": {
+                transform: "scale(1.05)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                borderColor: PRIMARY,
+              },
+            }}
+          >
+            <Box
+              component="img"
+              src={photoUrl}
+              alt="Visit photo"
+              sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          </Box>
+
+          {imgOpen && (
+            <Box
+              onClick={() => setImgOpen(false)}
+              sx={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 9999,
+                bgcolor: "rgba(0,0,0,0.92)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "zoom-out",
+                p: 2,
+              }}
+            >
+              <Box sx={{
+                position: "absolute", top: 16, right: 16,
+                width: 36, height: 36, borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.15)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+                "&:hover": { bgcolor: "rgba(255,255,255,0.25)" },
+              }}>
+                <Close sx={{ color: "#fff", fontSize: 20 }} />
+              </Box>
+
+              {v.locationName && (
+                <Box sx={{
+                  position: "absolute", top: 16, left: 16,
+                  bgcolor: "rgba(0,0,0,0.5)",
+                  borderRadius: "8px", px: 1.5, py: 0.75,
+                }}>
+                  <Typography sx={{ color: "#fff", fontSize: "0.82rem", fontWeight: 600 }}>
+                    📍 {v.locationName}
+                  </Typography>
+                  {v.checkInTime && (
+                    <Typography sx={{ color: "#94a3b8", fontSize: "0.7rem" }}>
+                      {fmt(v.checkInTime)}
+                    </Typography>
+                  )}
+                </Box>
+              )}
+
+              <Box
+                component="img"
+                src={photoUrl}
+                alt="Visit photo"
+                onClick={(e) => e.stopPropagation()}
+                sx={{
+                  maxWidth: "95vw",
+                  maxHeight: "90vh",
+                  borderRadius: "12px",
+                  objectFit: "contain",
+                  boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+                }}
+              />
+            </Box>
+          )}
+        </>
+      )}
     </Box>
   );
 };
@@ -244,7 +291,8 @@ const FilterDrawer = ({ open, onClose, filters, onApply }) => {
 };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function MemberVisitHistory({ userId: propUserId }) {
+// userName prop: pass the tracked member's display name from the parent (admin view)
+export default function MemberVisitHistory({ userId: propUserId, userName }) {
   const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userId: paramUserId } = useParams();
@@ -255,6 +303,10 @@ export default function MemberVisitHistory({ userId: propUserId }) {
   const isAdminView = !!paramUserId;
   const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     || (() => { try { const u = JSON.parse(localStorage.getItem("user") || localStorage.getItem("userData") || "null"); return u?._id || u?.id || u?.userId || null; } catch { return null; } })();
+
+  // Resolve display name: prop > URL state > fallback
+  const location = useLocation();
+  const resolvedUserName = userName || location?.state?.userName || null;
 
   const [visits,          setVisits]          = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -270,20 +322,15 @@ export default function MemberVisitHistory({ userId: propUserId }) {
   const [fullscreen,      setFullscreen]      = useState(false);
   const [lastUpdated,     setLastUpdated]     = useState(null);
 
-  // Locate-me
   const [punchOutLocation, setPunchOutLocation] = useState(null);
   const [locateTrigger, setLocateTrigger] = useState(0);
   const [locating,      setLocating]      = useState(false);
   const handleLocateMe = () => { setLocating(true); setLocateTrigger(t => t + 1); setTimeout(() => setLocating(false), 1800); };
 
-  // ── GPS travel distance from backend ──────────────────────────────────────
-  // Real km calculated server-side from saved GPS points (not visit distance)
-  const [gpsDistance,    setGpsDistance]    = useState(null);  // { totalKm, totalPoints }
+  const [gpsDistance,    setGpsDistance]    = useState(null);
   const [gpsDistLoading, setGpsDistLoading] = useState(false);
 
-  // Auto-visit toast — { locationName, dwellMins }
   const [autoVisitToast, setAutoVisitToast] = useState(null);
-  // Live dwell counter — { mins }
   const [dwellInfo, setDwellInfo] = useState(null);
 
   useEffect(() => {
@@ -308,9 +355,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
 
   useEffect(() => { return () => { if (isCurrentlyTracking()) stopTracking(); }; }, []);
 
-
-
-
   const fetchPunchInStatus = useCallback(async () => {
     try {
       const today = new Date().toISOString().split("T")[0];
@@ -327,8 +371,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
           address: att.punchIn?.address || null,
           time:    att.punchIn?.time    || null,
         });
-
-        // Save punch-out location if punched out
         if (out && att.punchOut?.time) {
           setPunchOutLocation({
             lat:     att.punchOut?.location?.lat  || att.punchOut?.location?.latitude  || null,
@@ -339,7 +381,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
         } else {
           setPunchOutLocation(null);
         }
-
       } else {
         setIsPunchedIn(false);
         setHasPunchedOut(false);
@@ -354,7 +395,11 @@ export default function MemberVisitHistory({ userId: propUserId }) {
       setError(null);
       const res  = await apiFetch("/visit", { page: pageNum, limit: 15, ...getDateRange(filters.dateRange), ...(isAdminView && targetUserId ? { userId: targetUserId } : {}), ...(filters.statuses?.length === 1 ? { status: filters.statuses[0] } : {}) });
       const data = res.data || res;
-      const nv   = data.visits || data.data || [];
+      const nv = res.visits
+        || res.data?.visits
+        || res.data
+        || res.result?.visits
+        || [];
       setVisits(prev => append ? [...prev, ...nv] : nv);
       setHasMore(data.pagination ? pageNum < data.pagination.totalPages : false);
       setLastUpdated(new Date());
@@ -366,17 +411,15 @@ export default function MemberVisitHistory({ userId: propUserId }) {
     try { await apiFetch("/visit/stats/overview", { ...getDateRange(filters.dateRange), ...(isAdminView && targetUserId ? { userId: targetUserId } : {}) }); } catch {}
   }, [filters, targetUserId, isAdminView]);
 
-  // Fetch total GPS km travelled from backend /location/distance
   const fetchGpsDistance = useCallback(async () => {
     if (!targetUserId) return;
     try {
       setGpsDistLoading(true);
-      // Use today's date — matches what the location tracker saves
       const today = new Date().toISOString().split("T")[0];
-     const res = await apiFetch("/location/distance", {
-  date: today,
-  salesmanId: targetUserId,   // ← always send it
-});
+      const res = await apiFetch("/location/distance", {
+        date: today,
+        salesmanId: targetUserId,
+      });
       const data = res?.data || res?.result || res;
       setGpsDistance({
         totalKm:     data?.totalKm     ?? 0,
@@ -397,8 +440,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
 
   const handleRefresh = () => { setPage(1); fetchVisits(1, false); fetchStats(); fetchPunchInStatus(); fetchGpsDistance(); };
 
-  // ── When punch-out detected → reload visits + km from DB after 2s ─────────
-  // 2s delay lets the final GPS flush reach the backend before we query
   useEffect(() => {
     if (!hasPunchedOut) return;
     const timer = setTimeout(() => {
@@ -408,15 +449,13 @@ export default function MemberVisitHistory({ userId: propUserId }) {
     return () => clearTimeout(timer);
   }, [hasPunchedOut, fetchVisits, fetchGpsDistance]);
 
-  // ── Auto-refresh every 2 minutes to keep visits + km current ─────────────
-  // Ensures data stays visible after punch-out without manual refresh
   useEffect(() => {
     if (!targetUserId) return;
     const interval = setInterval(() => {
       fetchVisits(1, false);
       fetchGpsDistance();
       fetchPunchInStatus();
-    }, 2 * 60 * 1000);
+    }, 12 * 1000);
     return () => clearInterval(interval);
   }, [targetUserId, fetchVisits, fetchGpsDistance, fetchPunchInStatus]);
 
@@ -439,9 +478,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
           {/* ── LEFT ── */}
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
 
-
-
-            {/* Auto-visit toast — location name + stop duration */}
+            {/* Auto-visit toast */}
             {autoVisitToast && (
               <Box sx={{
                 bgcolor: "#0f172a", color: "#fff", borderRadius: "14px", px: 2.5, py: 1.75,
@@ -473,14 +510,12 @@ export default function MemberVisitHistory({ userId: propUserId }) {
             {/* Map */}
             <Box sx={{ borderRadius: "16px", overflow: "hidden", border: "1px solid #e2e8f0", height: fullscreen ? "70vh" : { xs: 300, sm: 400, lg: 460 }, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", transition: "height 0.3s ease", position: "relative" }}>
 
-              {/* Fullscreen toggle */}
               <Tooltip title={fullscreen ? "Exit fullscreen" : "Fullscreen"} placement="left">
                 <Box onClick={() => setFullscreen(p => !p)} sx={{ position: "absolute", top: 50, right: 10, zIndex: 1000, bgcolor: "#fff", borderRadius: "10px", p: 0.75, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0", display: "flex", "&:hover": { bgcolor: "#f8fafc" } }}>
                   {fullscreen ? <FullscreenExit sx={{ fontSize: 18, color: "#374151" }} /> : <Fullscreen sx={{ fontSize: 18, color: "#374151" }} />}
                 </Box>
               </Tooltip>
 
-              {/* Live dwell badge */}
               {dwellInfo && dwellInfo.mins >= 1 && (
                 <Box sx={{ position: "absolute", bottom: 48, left: 10, zIndex: 1000, bgcolor: "rgba(255,255,255,0.95)", borderRadius: "10px", px: 1.5, py: 0.75, display: "flex", alignItems: "center", gap: 1, boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0" }}>
                   <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#f59e0b", animation: "dp 1.5s ease-in-out infinite", "@keyframes dp": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.3 } } }} />
@@ -489,7 +524,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                 </Box>
               )}
 
-              {/* Locate Me */}
               <Tooltip title="Go to my location" placement="left">
                 <Box onClick={handleLocateMe} sx={{ position: "absolute", top: 96, right: 10, zIndex: 1000, bgcolor: locating ? PRIMARY : "#fff", borderRadius: "10px", p: 0.75, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: `1px solid ${locating ? PRIMARY : "#e2e8f0"}`, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", "&:hover": { bgcolor: locating ? PRIMARY : alpha(PRIMARY, 0.08), borderColor: PRIMARY } }}>
                   {locating ? <CircularProgress size={18} sx={{ color: "#fff" }} /> : <GpsFixed sx={{ fontSize: 18, color: PRIMARY }} />}
@@ -502,7 +536,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
             {/* Stats row */}
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
 
-              {/* GPS Distance — from backend /location/distance (real km travelled) */}
               <Box sx={{ bgcolor: "#fff", borderRadius: "14px", p: 2.5, border: "1px solid #e8edf2", boxShadow: "0 1px 6px rgba(0,0,0,0.04)", "&:hover": { boxShadow: "0 4px 16px rgba(69,105,234,0.1)", borderColor: alpha(PRIMARY, 0.3) }, transition: "all 0.2s" }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                   <Route sx={{ fontSize: 20, color: PRIMARY }} />
@@ -523,7 +556,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                 )}
               </Box>
 
-              {/* Visits */}
               <Box sx={{ bgcolor: "#fff", borderRadius: "14px", p: 2.5, border: "1px solid #e8edf2", boxShadow: "0 1px 6px rgba(0,0,0,0.04)", "&:hover": { boxShadow: "0 4px 16px rgba(69,105,234,0.1)", borderColor: alpha(PRIMARY, 0.3) }, transition: "all 0.2s" }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                   <LocationOn sx={{ fontSize: 20, color: PRIMARY }} />
@@ -537,7 +569,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                 )}
               </Box>
 
-              {/* Avg Time */}
               <Box sx={{ bgcolor: "#fff", borderRadius: "14px", p: 2.5, border: "1px solid #e8edf2", boxShadow: "0 1px 6px rgba(0,0,0,0.04)", "&:hover": { boxShadow: "0 4px 16px rgba(69,105,234,0.1)", borderColor: alpha(PRIMARY, 0.3) }, transition: "all 0.2s" }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                   <Timer sx={{ fontSize: 20, color: PRIMARY }} />
@@ -582,15 +613,49 @@ export default function MemberVisitHistory({ userId: propUserId }) {
           {/* ── RIGHT — Visit Timeline ── */}
           <Box sx={{ bgcolor: "#fff", borderRadius: "16px", border: "1px solid #e8edf2", boxShadow: "0 4px 24px rgba(0,0,0,0.05)", overflow: "hidden", display: "flex", flexDirection: "column", position: { lg: "sticky" }, top: { lg: 16 }, maxHeight: { lg: "calc(100vh - 32px)" } }}>
 
+            {/* ── Timeline Header ── */}
             <Box sx={{ px: 3, py: 2.5, borderBottom: "1px solid #f1f5f9" }}>
-              <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#0f172a", mb: 0.75 }}>Visit Timeline</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#0f172a", mb: 0.5 }}>
+                Visit Timeline
+              </Typography>
 
-
+              {/* ── Admin: show which user is being tracked ── */}
+              {isAdminView && (
+                <Box sx={{
+                  display: "inline-flex", alignItems: "center", gap: 0.75,
+                  bgcolor: alpha(PRIMARY, 0.07),
+                  border: `1px solid ${alpha(PRIMARY, 0.18)}`,
+                  borderRadius: "8px",
+                  px: 1.25, py: 0.5,
+                  mb: 0.75,
+                }}>
+                  <VerifiedUser sx={{ fontSize: 13, color: PRIMARY }} />
+                  <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: PRIMARY }}>
+                    {resolvedUserName || targetUserId || "Unknown Member"}
+                  </Typography>
+                  <Box sx={{
+                    width: "1px", height: 12, bgcolor: alpha(PRIMARY, 0.25),
+                    mx: 0.25,
+                  }} />
+                  <Typography sx={{ fontSize: "0.65rem", fontWeight: 600, color: alpha(PRIMARY, 0.7), letterSpacing: "0.02em" }}>
+                    ADMIN VIEW
+                  </Typography>
+                </Box>
+              )}
 
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                {updatedLabel && <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}><AccessTime sx={{ fontSize: 12, color: "#94a3b8" }} /><Typography sx={{ fontSize: "0.7rem", color: "#94a3b8" }}>Updated {updatedLabel}</Typography></Box>}
+                {updatedLabel && (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
+                    <AccessTime sx={{ fontSize: 12, color: "#94a3b8" }} />
+                    <Typography sx={{ fontSize: "0.7rem", color: "#94a3b8" }}>Updated {updatedLabel}</Typography>
+                  </Box>
+                )}
                 <Box sx={{ flex: 1 }} />
-                <Tooltip title="Refresh"><IconButton size="small" onClick={handleRefresh} sx={{ color: "#94a3b8", "&:hover": { color: PRIMARY, bgcolor: alpha(PRIMARY, 0.06) } }}><Refresh sx={{ fontSize: 16 }} /></IconButton></Tooltip>
+                <Tooltip title="Refresh">
+                  <IconButton size="small" onClick={handleRefresh} sx={{ color: "#94a3b8", "&:hover": { color: PRIMARY, bgcolor: alpha(PRIMARY, 0.06) } }}>
+                    <Refresh sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
               </Box>
             </Box>
 
@@ -617,9 +682,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                 <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 3 }}>
 
                   {isPunchedIn && !hasPunchedOut ? (
-                    /* ── Punched in — show as first timeline item ── */
                     <Box sx={{ display: "flex", gap: 2 }}>
-                      {/* Green pulsing dot */}
                       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                         <Box sx={{
                           width: 40, height: 40, borderRadius: "50%",
@@ -632,20 +695,15 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                           <MyLocation sx={{ fontSize: 18, color: "#fff" }} />
                         </Box>
                       </Box>
-
-                      {/* Content */}
                       <Box sx={{ flex: 1, minWidth: 0, pt: 0.5 }}>
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.4 }}>
-                          <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>
-                            Punched In
-                          </Typography>
+                          <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched In</Typography>
                           {punchInLocation?.time && (
                             <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>
                               {fmt(punchInLocation.time)}
                             </Typography>
                           )}
                         </Box>
-
                         {punchInLocation?.address && (
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.5 }}>
                             <LocationOn sx={{ fontSize: 12, color: "#94a3b8", mt: "2px", flexShrink: 0 }} />
@@ -656,7 +714,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                             </Typography>
                           </Box>
                         )}
-
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
                           <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: SUCCESS, animation: "dp 1.5s ease-in-out infinite", "@keyframes dp": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.3 } } }} />
                           <Typography sx={{ fontSize: "0.7rem", color: SUCCESS, fontWeight: 600 }}>
@@ -667,23 +724,17 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                     </Box>
 
                   ) : hasPunchedOut ? (
-                    /* Punched out — show full punch-in + punch-out timeline */
                     <Box sx={{ width: "100%" }}>
-
-                      {/* ── Punch In entry ── */}
                       <Box sx={{ display: "flex", gap: 2, mb: 0 }}>
                         <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                           <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: SUCCESS, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${alpha(SUCCESS, 0.3)}` }}>
                             <MyLocation sx={{ fontSize: 18, color: "#fff" }} />
                           </Box>
-                          {/* connector line */}
                           <Box sx={{ width: 2, flex: 1, minHeight: 32, bgcolor: "#e2e8f0", my: 0.5 }} />
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0, pt: 0.5, pb: 2 }}>
                           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.4 }}>
-                            <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>
-                              Punched In
-                            </Typography>
+                            <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched In</Typography>
                             {punchInLocation?.time && (
                               <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>
                                 {fmt(punchInLocation.time)}
@@ -703,7 +754,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                         </Box>
                       </Box>
 
-                      {/* ── Punch Out entry ── */}
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                           <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: WARNING, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${alpha(WARNING, 0.3)}` }}>
@@ -712,9 +762,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0, pt: 0.5 }}>
                           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.4 }}>
-                            <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>
-                              Punched Out
-                            </Typography>
+                            <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched Out</Typography>
                             {punchOutLocation?.time && (
                               <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>
                                 {fmt(punchOutLocation.time)}
@@ -735,7 +783,6 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                               Location not recorded
                             </Typography>
                           )}
-                          {/* Day summary chip */}
                           <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, bgcolor: alpha(WARNING, 0.08), border: `1px solid ${alpha(WARNING, 0.2)}`, borderRadius: "8px", px: 1.25, py: 0.5 }}>
                             <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: WARNING }} />
                             <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "#92400e" }}>
@@ -759,7 +806,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
               ) : (
                 <Box sx={{ p: 3 }}>
 
-                  {/* ── Punch In header item ── */}
+                  {/* Punch In header */}
                   {punchInLocation?.address && (
                     <Box sx={{ display: "flex", gap: 2, mb: 0 }}>
                       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
@@ -783,7 +830,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                     </Box>
                   )}
 
-                  {/* ── Visit cards ── */}
+                  {/* Visit cards */}
                   {visits.map((v, i) => (
                     <VisitCard
                       key={v._id || i}
@@ -793,7 +840,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                     />
                   ))}
 
-                  {/* ── Punch Out footer item (only when punched out) ── */}
+                  {/* Punch Out footer */}
                   {hasPunchedOut && punchOutLocation?.time && (
                     <Box sx={{ display: "flex", gap: 2, mt: 0 }}>
                       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
