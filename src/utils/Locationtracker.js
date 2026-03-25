@@ -41,7 +41,6 @@ async function reverseGeocode(lat, lng) {
       return { name: shortName, address: fullAddress || data.display_name || shortName };
     }
   } catch (e) {
-    // silent — non-critical, address is best-effort
     console.warn("[Tracker] Reverse geocode failed:", e.message);
   }
   return { name: `Stop at ${lat.toFixed(4)}°, ${lng.toFixed(4)}°`, address: "" };
@@ -61,7 +60,6 @@ let isTracking       = false;
 let onPointCallback  = null;
 let socketRef        = null;
 
-// Track whether we've already shown certain one-time toasts this session
 let _shownPoorGpsToast  = false;
 let _shownOfflineToast  = false;
 let _flushFailCount     = 0;
@@ -70,6 +68,13 @@ const getToken = () =>
   localStorage.getItem("token")      ||
   localStorage.getItem("authToken")  ||
   localStorage.getItem("accessToken") || "";
+
+// ✅ Safe emit helper — always checks socketRef is non-null and connected
+function safeEmit(event, data) {
+  if (socketRef && socketRef.connected) {
+    socketRef.emit(event, data);
+  }
+}
 
 export function startTracking(onPoint = null, socket = null) {
   if (isTracking) return;
@@ -90,10 +95,16 @@ export function startTracking(onPoint = null, socket = null) {
   _shownOfflineToast  = false;
   _flushFailCount     = 0;
 
+  // ✅ Fixed: capture socket in a local variable at call time so the async
+  // callback cannot read a nulled-out socketRef after stopTracking() fires
+  // before getCurrentPosition resolves.
   if (socketRef?.connected) {
+    const capturedSocket = socketRef;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        socketRef.emit("location:start", {
+        // ✅ Guard: component/tracker may have stopped by the time this fires
+        if (!capturedSocket || !capturedSocket.connected) return;
+        capturedSocket.emit("location:start", {
           lat:      pos.coords.latitude,
           lng:      pos.coords.longitude,
           accuracy: pos.coords.accuracy ?? 0,
@@ -122,13 +133,11 @@ export function startTracking(onPoint = null, socket = null) {
         return;
       }
 
-      // Poor accuracy toast — show once per session when accuracy > 200m
       if (pt.accuracy > 200 && !_shownPoorGpsToast) {
         toast.warn(`GPS accuracy is poor (±${Math.round(pt.accuracy)}m). Move to open sky for better tracking.`, {
           title: "Weak GPS Signal",
         });
         _shownPoorGpsToast = true;
-        // Reset after 5 min so it can warn again if still bad
         setTimeout(() => { _shownPoorGpsToast = false; }, 5 * 60 * 1000);
       }
 
@@ -150,8 +159,9 @@ export function startTracking(onPoint = null, socket = null) {
 
       flushBuffer();
 
+      // ✅ Use safeEmit instead of socketRef.emit directly
       if (socketRef?.connected) {
-        socketRef.emit("location:update", {
+        safeEmit("location:update", {
           lat:      pt.lat,
           lng:      pt.lng,
           speed:    pt.speed,
@@ -163,7 +173,6 @@ export function startTracking(onPoint = null, socket = null) {
           title: "Live Sync Paused",
         });
         _shownOfflineToast = true;
-        // Reset so it can re-warn if socket drops again after reconnect
         setTimeout(() => { _shownOfflineToast = false; }, 5 * 60 * 1000);
       }
 
@@ -174,7 +183,6 @@ export function startTracking(onPoint = null, socket = null) {
       handleAutoVisit(pt);
     },
     (err) => {
-      // Map GeolocationPositionError codes to friendly messages
       const msgs = {
         1: "Location permission denied. Please allow location access in your browser settings.",
         2: "GPS signal unavailable. Check if location is enabled on your device.",
@@ -273,7 +281,8 @@ export function stopTracking() {
   if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (flushTimer !== null) { clearInterval(flushTimer); flushTimer = null; }
   window.removeEventListener("requestDwellInfo", handleDwellInfoRequest);
-  if (socketRef?.connected) socketRef.emit("location:stop");
+  // ✅ Use safeEmit before nulling socketRef
+  safeEmit("location:stop");
   socketRef = null;
   flushBuffer();
   isTracking       = false;
@@ -313,7 +322,6 @@ async function flushBuffer() {
     _flushFailCount++;
     console.warn("[Tracker] ⚠ Save failed, re-queued:", err.message);
 
-    // Only toast after 3 consecutive failures to avoid spam
     if (_flushFailCount === 3) {
       toast.error("Location data not reaching server. Check your connection.", {
         title: "Sync Failed",

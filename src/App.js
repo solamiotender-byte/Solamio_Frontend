@@ -148,7 +148,7 @@ function App() {
                         />
 
                         <Route path="team-tracking" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><TeamTracking /></ProtectedRoute>} />
-                       <Route path="member-history/:id" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><MemberVisitHistory /></ProtectedRoute>} />
+                       <Route path="member-history/:userId" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><MemberVisitHistory /></ProtectedRoute>} />
                         <Route path="all-leads" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><LeadOverview /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
                       </Routes>

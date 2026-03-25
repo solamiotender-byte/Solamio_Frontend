@@ -241,15 +241,15 @@
         }
 
         // Step 3: Fetch today's visit stats per user
-        let visits = [];
-        try {
-          const visitsRes = await axios.get(`${API}/api/v1/visit`, {
-  headers, params: { startDate: today, endDate: today, limit: 500 },
-});
-visits = visitsRes.data?.result?.visits || visitsRes.data?.data?.visits || [];
-        } catch (e) {
-          console.error("Visits fetch failed:", e.message);
-        }
+       let visits = [];
+try {
+  const visitsRes = await axios.get(`${API}/api/v1/visit`, {
+    headers, params: { startDate: today, endDate: today, limit: 100 },
+  });
+  visits = visitsRes.data?.result?.visits || visitsRes.data?.data?.visits || [];
+} catch (e) {
+  console.error("Visits fetch failed:", e.message);
+}
 
         // Step 4: Map attendance by userId
         const attMap = {};
