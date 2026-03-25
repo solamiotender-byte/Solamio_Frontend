@@ -325,7 +325,6 @@ export default function VisitDetails({ onClose, onSave }) {
 
   const handleLeadToggle = (e) => {
     setIsLeadCreated(e.target.value);
-    // clear autocomplete when switching to yes
     if (e.target.value === 'yes') { setSuggestions([]); setShowSuggestions(false); }
   };
 
@@ -335,7 +334,6 @@ export default function VisitDetails({ onClose, onSave }) {
     if (!imageFile)                    errors.photo        = 'Please capture a photo';
     if (!formData.locationName.trim()) errors.locationName = 'Location name is required';
     if (!location)                     errors.location     = 'Location coordinates are required';
-    // 'yes' requires contact person; 'no' allows optional; 'other' skips contact entirely
     if (isLeadCreated === 'yes') {
       if (!formData.contactPerson.trim()) errors.contactPerson = 'Contact person is required';
       if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
@@ -350,31 +348,40 @@ export default function VisitDetails({ onClose, onSave }) {
   };
 
   // ── submit ────────────────────────────────────────────────────────────────
-const handleSubmit = async () => {
+  const handleSubmit = async () => {
     if (!validate()) { setError('Please fill all required fields correctly'); return; }
     setLoading(true);
     setError(null);
-    const now = new Date(); 
+
+    // ✅ Compute once, reuse everywhere
+    const now       = new Date();
+    const visitDate = now.toISOString().split('T')[0];
+    const visitTime = now.toTimeString().slice(0, 5);
 
     try {
       const fd = new FormData();
+
+      // ✅ All text fields BEFORE the file so the backend always reads them
       fd.append('latitude',      location.lat.toString());
       fd.append('longitude',     location.lng.toString());
       fd.append('locationName',  formData.locationName.trim());
       fd.append('isLeadCreated', isLeadCreated);
+      fd.append('visitDate',     visitDate);
+      fd.append('visitTime',     visitTime);
+      fd.append('visitStatus',   'Completed');
+
       if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
 
-      // Send contact fields only when not 'other' — 'other' is completely untouched
+      // Contact fields only when not 'other'
       if (isLeadCreated !== 'other') {
         if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
         if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
         if (formData.email.trim())         fd.append('email',         formData.email.trim());
       }
+
+      // ✅ File appended once, at the very end
       fd.append('photos', imageFile);
-fd.append('visitDate', now.toISOString().split('T')[0]);
-fd.append('visitTime', now.toTimeString().slice(0, 5));
-fd.append('visitStatus', 'Completed');
-fd.append('photos', imageFile);
+
       // Step 1 — save the visit
       const visitRes  = await fetch(`${BASE_URL}/visit`, {
         method: 'POST',
@@ -384,22 +391,33 @@ fd.append('photos', imageFile);
       const visitJson = await visitRes.json();
       if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
 
-      // Step 2 — create lead for BOTH 'yes' AND 'no' using identical logic
-      // 'other' is fully skipped — only the visit above is saved, nothing else
+      // Step 2 — create lead for 'yes' and 'no' when contact person is provided
       if ((isLeadCreated === 'yes' || isLeadCreated === 'no') && formData.contactPerson.trim()) {
         const nameParts = formData.contactPerson.trim().split(' ');
         const firstName = nameParts[0] || 'Unknown';
         const lastName  = nameParts.slice(1).join(' ') || '.';
+
+        // 🔍 DEBUG — open browser Console (F12) to see this
+        console.log('📦 Lead payload being sent:', JSON.stringify({
+          firstName, lastName,
+          visitDate,
+          visitTime,
+          visitLocation: formData.locationName.trim(),
+          visitNotes: formData.remarks.trim(),
+          visitStatus: 'Completed',
+          status: 'Visit',
+        }, null, 2));
         const leadRes = await fetch(`${BASE_URL}/lead/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
           body: JSON.stringify({
-            firstName, lastName,
+            firstName,
+            lastName,
             phone:         formData.phone.trim(),
             email:         formData.email.trim(),
             visitLocation: formData.locationName.trim(),
-             visitDate:     now.toISOString().split('T')[0], // 👈 ADD
-            visitTime:now.toTimeString().slice(0, 5),  // 👈 ADD
+          date: visitDate,
+time: visitTime,
             visitNotes:    formData.remarks.trim(),
             visitStatus:   'Completed',
             status:        'Visit',
@@ -407,24 +425,29 @@ fd.append('photos', imageFile);
         });
         const leadJson = await leadRes.json();
         if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
+        console.log('✅ Lead response from backend:', JSON.stringify(leadJson, null, 2));
       }
-// Step 3 — other: save description as visitNotes only
-if (isLeadCreated === 'other' && formData.remarks.trim()) {
-  const leadRes = await fetch(`${BASE_URL}/lead/create`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify({
-      firstName:     'Other',
-      lastName:      'Visit',
-      visitLocation: formData.locationName.trim(),
-      visitNotes:    formData.remarks.trim(),
-      visitStatus:   'Completed',
-      status:        'Visit',
-    }),
-  });
-  const leadJson = await leadRes.json();
-  if (!leadRes.ok) console.warn('Other visit save failed:', leadJson.message);
-}
+
+      // Step 3 — 'other': save remarks as visitNotes, now includes visitDate & visitTime
+      if (isLeadCreated === 'other' && formData.remarks.trim()) {
+        const leadRes = await fetch(`${BASE_URL}/lead/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({
+            firstName:     'Other',
+            lastName:      'Visit',
+            visitLocation: formData.locationName.trim(),
+            date: visitDate,
+            time: visitTime,
+            visitNotes:    formData.remarks.trim(),
+            visitStatus:   'Completed',
+            status:        'Visit',
+          }),
+        });
+        const leadJson = await leadRes.json();
+        if (!leadRes.ok) console.warn('Other visit save failed:', leadJson.message);
+      }
+
       const visitData = visitJson.data || visitJson;
       setCreatedVisit(visitData);
       setSuccess(true);
@@ -541,7 +564,7 @@ if (isLeadCreated === 'other' && formData.remarks.trim()) {
           <Grid item xs={12} md={6}>
             <Stack spacing={2}>
 
-              {/* ── Lead toggle: Yes / No / Other ────────────────────────── */}
+              {/* Lead toggle: Yes / No / Other */}
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <PersonAdd /> New Lead Created?
@@ -556,7 +579,7 @@ if (isLeadCreated === 'other' && formData.remarks.trim()) {
                 </FormControl>
               </FormSection>
 
-              {/* ── Contact Information — shown for 'yes' and 'no', hidden for 'other' ── */}
+              {/* Contact Information — shown for 'yes' and 'no', hidden for 'other' */}
               {isLeadCreated !== 'other' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
@@ -591,7 +614,7 @@ if (isLeadCreated === 'other' && formData.remarks.trim()) {
                           }}
                         />
 
-                        {/* Suggestions — only when 'no' */}
+                        {/* Suggestions dropdown — only when 'no' */}
                         {isLeadCreated === 'no' && showSuggestions && suggestions.length > 0 && (
                           <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, borderRadius: 2, overflow: 'hidden', border: `1px solid ${alpha(PRIMARY, 0.2)}`, mt: 0.5 }}>
                             {suggestions.map((lead, index) => (

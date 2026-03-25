@@ -996,19 +996,27 @@ const MobileVisitCard = ({ visit, onView, onEdit }) => {
             alignItems="center"
             sx={{ mb: 0.5 }}
           >
-            <CalendarToday
-              sx={{ fontSize: 14, color: alpha(PRIMARY_COLOR, 0.6) }}
-            />
-            <Typography variant="body2" fontWeight={500}>
-              {formatDate(visit.visitDate, "dd MMM yyyy")}
-            </Typography>
-            <FiberManualRecord sx={{ fontSize: 4, color: "text.disabled" }} />
-            <AccessTime
-              sx={{ fontSize: 14, color: alpha(PRIMARY_COLOR, 0.6) }}
-            />
-            <Typography variant="body2" fontWeight={500}>
-              {formatTime(visit.visitTime)}
-            </Typography>
+            
+
+<CalendarToday
+  sx={{ fontSize: 14, color: alpha(PRIMARY_COLOR, 0.6) }}
+/>
+<Typography variant="body2" fontWeight={500}>
+  {visit.visitDate
+    ? formatDate(visit.visitDate, "dd MMM yyyy")
+    : formatDate(visit.createdAt, "dd MMM yyyy")}
+</Typography>
+<FiberManualRecord sx={{ fontSize: 4, color: "text.disabled" }} />
+<AccessTime
+  sx={{ fontSize: 14, color: alpha(PRIMARY_COLOR, 0.6) }}
+/>
+<Typography variant="body2" fontWeight={500}>
+  {visit.visitTime
+    ? formatTime(visit.visitTime)
+    : formatDate(visit.createdAt, "hh:mm a")}
+</Typography>
+
+
           </Stack>
           {visit.visitLocation && (
             <Stack direction="row" spacing={0.5} alignItems="flex-start">
@@ -1300,17 +1308,22 @@ const ViewVisitModal = React.memo(
                     Visit Date
                   </Typography>
                   <Typography variant="body2" fontWeight={500}>
-                    {formatDate(visit.visitDate, "dd MMM yyyy")}
-                  </Typography>
-                </Box>
-                <Divider />
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Visit Time
-                  </Typography>
+  {visit.visitDate
+    ? formatDate(visit.visitDate, "dd MMM yyyy")
+    : formatDate(visit.createdAt, "dd MMM yyyy")}
+</Typography>
+<FiberManualRecord sx={{ fontSize: 4, color: "text.disabled" }} />
+<AccessTime sx={{ fontSize: 14, color: alpha(PRIMARY_COLOR, 0.6) }} />
+<Typography variant="body2" fontWeight={500}>
+  {visit.visitTime
+    ? formatTime(visit.visitTime)
+    : formatDate(visit.createdAt, "hh:mm a")}
+</Typography>
+
                   <Typography variant="body2" fontWeight={500}>
                     {formatTime(visit.visitTime)}
                   </Typography>
+                
                 </Box>
               </Stack>
             </Paper>
@@ -3299,11 +3312,17 @@ export default function TotalVisitsPage() {
                             )}
                           </Box>
                         </TableCell>
-                        <TableCell>
-                          {formatDate(visit.visitDate, "dd MMM yyyy")}
-                          <br />
-                          <small>{formatTime(visit.visitTime)}</small>
-                        </TableCell>
+                       <TableCell>
+  {visit.visitDate
+    ? formatDate(visit.visitDate, "dd MMM yyyy")
+    : formatDate(visit.createdAt, "dd MMM yyyy")}
+  <br />
+  <small>
+    {visit.visitTime
+      ? formatTime(visit.visitTime)
+      : formatDate(visit.createdAt, "hh:mm a")}
+  </small>
+</TableCell>
                         <TableCell>{visit.visitLocation || "—"}</TableCell>
                         <TableCell>
                           <Typography
