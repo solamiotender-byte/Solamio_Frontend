@@ -413,47 +413,72 @@ const TeamAttendance = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
-    else setRefreshing(true);
+  if (showSpinner) setLoading(true);
+  else setRefreshing(true);
 
     try {
-      const today = new Date().toISOString().split("T")[0];
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
+    const today = new Date().toISOString().split("T")[0];
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
 
-      // Step 1: Fetch team users
-      let rawUsers = [];
-      try {
-        const usersRes = await axios.get(`${API}/api/v1/user/getManagerUnderUserList`, {
-          headers, params: { limit: 200 },
-        });
-        rawUsers = usersRes.data?.result?.users || [];
-      } catch (e) {
-        console.error("Users API failed:", e.message);
-      }
+    // Step 1: Fetch team users (backend now filters by role — ASM sees only their team)
+    let rawUsers = [];
+    try {
+      const usersRes = await axios.get(`${API}/api/v1/user/getManagerUnderUserList`, {
+        headers, params: { limit: 200 },
+      });
+      rawUsers = usersRes.data?.result?.users || [];
+    } catch (e) {
+      console.error("Users API failed:", e.message);
+    }
 
-      // Step 2: Fetch today's attendance
-      let attendances = [];
-      try {
+    // ✅ Step 2: Fetch attendance ONLY for the fetched user IDs
+    // This prevents ASM from seeing attendance of users outside their team
+    let attendances = [];
+    try {
+      const userIds = rawUsers.map((u) => String(u._id || u.id)).filter(Boolean);
+
+      if (userIds.length > 0) {
         const attRes = await axios.get(`${API}/api/v1/attendance`, {
-          headers, params: { startDate: today, endDate: today, limit: 200 },
+          headers,
+          params: {
+            startDate: today,
+            endDate: today,
+            limit: 200,
+            // ✅ Backend role filter handles scoping automatically
+            // No need to pass userIds — backend returns only what this role can see
+          },
         });
-        attendances = attRes.data?.result?.attendances || [];
-      } catch (e) {
-        console.error("Attendance API failed:", e.message);
+        const allAtt = attRes.data?.result?.attendances || [];
+
+        // ✅ Filter attendance to ONLY users returned from getManagerUnderUserList
+        // Double safety: even if backend leaks extra records, we filter here too
+        const allowedIdSet = new Set(userIds);
+        attendances = allAtt.filter((a) => {
+          const uid = String(a.user?.id || a.user?._id || "");
+          return allowedIdSet.has(uid);
+        });
       }
+    } catch (e) {
+      console.error("Attendance API failed:", e.message);
+    }
+
+
 
       // Step 3: Fetch battery for all users
-      let batteryMap = {};
-      try {
-        const userIds = rawUsers.map((u) => String(u._id || u.id)).filter(Boolean);
+       let batteryMap = {};
+    try {
+      const userIds = rawUsers.map((u) => String(u._id || u.id)).filter(Boolean);
+      if (userIds.length > 0) {
         const battRes = await axios.get(`${API}/api/v1/battery/all-latest`, {
           headers,
           params: { userIds: userIds.join(",") },
         });
         const batteryLogs = battRes.data?.data || battRes.data?.result || [];
+
         batteryLogs.forEach((b) => {
-          const key = String(b._id || "");
+          // ✅ Fixed: use userId field, NOT b._id (b._id is the battery log's own ID)
+          const key = String(b.userId || b.user?._id || b.user || "");
           if (key) {
             batteryMap[key] = {
               percentage: typeof b.percentage === "number" ? b.percentage : null,
@@ -461,51 +486,55 @@ const TeamAttendance = () => {
             };
           }
         });
-      } catch (e) {
-        console.error("Battery fetch failed:", e.message);
       }
+    } catch (e) {
+      console.error("Battery fetch failed:", e.message);
+    }
+
 
       // Step 4: Map attendance by userId
       const attMap = {};
-      attendances.forEach((a) => {
-        const uid = String(a.user?.id || a.user?._id || "");
-        if (uid) attMap[uid] = a;
-      });
+    attendances.forEach((a) => {
+      const uid = String(a.user?.id || a.user?._id || "");
+      if (uid) attMap[uid] = a;
+    });
 
-      // Step 5: Merge
-      const merged = rawUsers.map((u) => {
-        const uid = String(u._id || u.id || "");
-        const att = attMap[uid] || null;
-        const punchedIn = !!att?.punchIn?.time;
-        const punchOutTime = att?.punchOut?.time ? formatTime(att.punchOut.time) : null;
-        return {
-          id: uid,
-          firstName: u.firstName || "",
-          lastName: u.lastName || "",
-          phoneNumber: u.phoneNumber || "",
-          email: u.email || "",
-          role: u.role || "TEAM",
-          avatar: (u.firstName?.[0] || "").toUpperCase(),
-          color: getColor(u.firstName || ""),
-          punchedIn,
-          punchInTime: punchedIn ? formatTime(att.punchIn.time) : null,
-          punchOutTime,
-          location: att?.punchIn?.address || att?.punchOut?.address || null,
-          totalHours: att?.workHours ? formatHours(att.workHours) : null,
-          batteryPercentage: batteryMap[uid]?.percentage ?? null,
-          isCharging: batteryMap[uid]?.isCharging ?? false,
-        };
-      });
+    // Step 5: Merge users + attendance + battery
+    const merged = rawUsers.map((u) => {
+      const uid = String(u._id || u.id || "");
+      const att = attMap[uid] || null;
+      const punchedIn = !!att?.punchIn?.time;
+      const punchOutTime = att?.punchOut?.time ? formatTime(att.punchOut.time) : null;
 
-      setTeam(merged);
-      setLastRefreshed(new Date());
-    } catch (err) {
-      console.error("TeamAttendance fetch error:", err.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+      return {
+        id: uid,
+        firstName: u.firstName || "",
+        lastName: u.lastName || "",
+        phoneNumber: u.phoneNumber || "",
+        email: u.email || "",
+        role: u.role || "TEAM",
+        avatar: (u.firstName?.[0] || "").toUpperCase(),
+        color: getColor(u.firstName || ""),
+        punchedIn,
+        punchInTime: punchedIn ? formatTime(att.punchIn.time) : null,
+        punchOutTime,
+        location: att?.punchIn?.address || att?.punchOut?.address || null,
+        totalHours: att?.workHours ? formatHours(att.workHours) : null,
+        // ✅ Fixed battery key lookup
+        batteryPercentage: batteryMap[uid]?.percentage ?? null,
+        isCharging: batteryMap[uid]?.isCharging ?? false,
+      };
+    });
+
+    setTeam(merged);
+    setLastRefreshed(new Date());
+  } catch (err) {
+    console.error("TeamAttendance fetch error:", err.message);
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+}, []);
 
   useEffect(() => {
     fetchData();

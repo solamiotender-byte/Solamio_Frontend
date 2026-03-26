@@ -62,7 +62,40 @@ const STATUS_CONFIG = {
   leave:   { bg: alpha("#a855f7",  0.1), color: "#a855f7",  icon: <Person        sx={{ fontSize: 14 }} />, label: "Leave"   },
   holiday: { bg: alpha("#3b82f6",  0.1), color: "#3b82f6",  icon: <CalendarToday sx={{ fontSize: 14 }} />, label: "Holiday" },
 };
+const MissedPunchOutChip = () => (
+  <Tooltip title="User did not punch out this day" arrow>
+    <Chip
+      size="small"
+      icon={<Warning sx={{ fontSize: 12, color: `${WARNING} !important` }} />}
+      label="Missed Punch-Out"
+      sx={{
+        bgcolor: alpha(WARNING, 0.1),
+        color: WARNING,
+        fontWeight: 700,
+        fontSize: "0.65rem",
+        height: 20,
+        border: `1px solid ${alpha(WARNING, 0.3)}`,
+      }}
+    />
+  </Tooltip>
+);
 
+const AutoPunchOutChip = () => (
+  <Tooltip title="Auto punched out by system after 12 hours" arrow>
+    <Chip
+      size="small"
+      label="Auto"
+      sx={{
+        bgcolor: alpha(WARNING, 0.1),
+        color: WARNING,
+        fontWeight: 700,
+        fontSize: "0.62rem",
+        height: 18,
+        ml: 0.5,
+      }}
+    />
+  </Tooltip>
+)
 // ─── Helper: decode creation date from MongoDB ObjectId ──────────────────────
 const getJoinDateFromObjectId = (objectId) => {
   try {
@@ -503,12 +536,47 @@ const MobileLogCard = ({ entry, onView, onDelete, canDelete, index }) => {
             <IconButton size="small" onClick={() => setExp(!exp)} sx={{ bgcolor: alpha(cfg.color, 0.08), transform: exp ? "rotate(180deg)" : "none", transition: "transform .25s" }}><ExpandMore fontSize="small" /></IconButton>
           </Stack>
           <Grid container spacing={1} sx={{ mb: 1.5 }}>
-            {[["Punch In", ft(entry.punchIn?.time), SUCCESS], ["Punch Out", entry.punchOut ? ft(entry.punchOut.time) : "Ongoing", entry.punchOut ? WARNING : PRIMARY], ["Hours", entry.workHoursFormatted || "—", PRIMARY]].map(([l, v, c]) => (
-              <Grid item xs={4} key={l}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25, fontSize: "0.68rem" }}>{l}</Typography>
-                <Typography variant="body2" fontWeight={700} color={c}>{v}</Typography>
-              </Grid>
-            ))}
+           {/* Punch In */}
+<Grid item xs={4}>
+  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25, fontSize: "0.68rem" }}>Punch In</Typography>
+  <Typography variant="body2" fontWeight={700} color={SUCCESS}>{ft(entry.punchIn?.time)}</Typography>
+</Grid>
+
+{/* Punch Out */}
+<Grid item xs={4}>
+  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25, fontSize: "0.68rem" }}>Punch Out</Typography>
+  {entry.punchOut ? (
+    <Stack spacing={0.25}>
+      <Stack direction="row" spacing={0.4} alignItems="center">
+        <Typography variant="body2" fontWeight={700} color={WARNING}>{ft(entry.punchOut.time)}</Typography>
+      </Stack>
+      {entry.punchOut.isAutoPunchOut && (
+        <Chip size="small" label="Auto" sx={{ bgcolor: alpha(WARNING, 0.1), color: WARNING, fontWeight: 700, fontSize: "0.6rem", height: 16, width: "fit-content" }} />
+      )}
+    </Stack>
+  ) : (
+    <Typography variant="body2" fontWeight={700} color={PRIMARY}>Ongoing</Typography>
+  )}
+</Grid>
+
+{/* Hours */}
+<Grid item xs={4}>
+  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25, fontSize: "0.68rem" }}>Hours</Typography>
+  <Typography variant="body2" fontWeight={700} color={PRIMARY}>{entry.workHoursFormatted || "—"}</Typography>
+</Grid>
+
+{/* ✅ Missed punch-out warning — full width below the 3 cols */}
+{entry.missedPunchOut && (
+  <Grid item xs={12}>
+    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.5, p: 1, borderRadius: 1.5, bgcolor: alpha(WARNING, 0.08), border: `1px solid ${alpha(WARNING, 0.25)}` }}>
+      <Warning sx={{ fontSize: 14, color: WARNING }} />
+      <Typography variant="caption" color={WARNING} fontWeight={700}>
+        User did not punch out this day
+      </Typography>
+    </Stack>
+  </Grid>
+)}
+
           </Grid>
           {resolveAddr(entry.punchIn?.address) && <Stack direction="row" spacing={0.5} alignItems="flex-start" sx={{ mb: 0.5 }}><LocationOn sx={{ fontSize: 13, color: "text.disabled", mt: 0.2 }} /><Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}><strong>In:</strong> {resolveAddr(entry.punchIn.address)}</Typography></Stack>}
           {resolveAddr(entry.punchOut?.address) && <Stack direction="row" spacing={0.5} alignItems="flex-start" sx={{ mb: 0.5 }}><LocationOn sx={{ fontSize: 13, color: "text.disabled", mt: 0.2 }} /><Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}><strong>Out:</strong> {resolveAddr(entry.punchOut.address)}</Typography></Stack>}
@@ -1437,15 +1505,36 @@ export default function Attendance() {
                                       />
                                     : <Typography variant="body2" color="text.disabled">—</Typography>}
                                 </TableCell>
-                                <TableCell>
-                                  {a.punchOut
-                                    ? <Chip label={fmtTime(a.punchOut.time)} size="small" sx={{ bgcolor: alpha(WARNING, 0.1), color: WARNING, fontWeight: 700, fontSize: "0.72rem" }} />
-                                    : a.punchIn
-                                    ? <Chip label="Ongoing" size="small" variant="outlined" sx={{ color: PRIMARY, borderColor: PRIMARY, fontWeight: 700 }} />
-                                    : <Typography variant="body2" color="text.disabled">—</Typography>}
-                                </TableCell>
+                               <TableCell>
+  {a.punchOut ? (
+    <Stack direction="row" spacing={0.5} alignItems="center">
+      <Chip
+        label={fmtTime(a.punchOut.time)}
+        size="small"
+        sx={{
+          bgcolor: a.punchOut.isAutoPunchOut ? alpha(WARNING, 0.08) : alpha(WARNING, 0.1),
+          color: WARNING,
+          fontWeight: 700,
+          fontSize: "0.72rem",
+          border: a.punchOut.isAutoPunchOut ? `1px dashed ${alpha(WARNING, 0.5)}` : "none",
+        }}
+      />
+      {a.punchOut.isAutoPunchOut && <AutoPunchOutChip />}
+    </Stack>
+  ) : a.punchIn ? (
+    <Chip label="Ongoing" size="small" variant="outlined" sx={{ color: PRIMARY, borderColor: PRIMARY, fontWeight: 700 }} />
+  ) : (
+    <Typography variant="body2" color="text.disabled">—</Typography>
+  )}
+</TableCell>
                                 <TableCell><Typography variant="body2" fontWeight={700} color={isAbsent ? DANGER : PRIMARY}>{a.workHoursFormatted || "—"}</Typography></TableCell>
-                                <TableCell><StatusBadge status={a.status || "present"} /></TableCell>
+                                <TableCell>
+  <Stack spacing={0.5} alignItems="flex-start">
+    <StatusBadge status={a.status || "present"} />
+    {a.missedPunchOut && <MissedPunchOutChip />}
+  </Stack>
+</TableCell>
+
                                 <TableCell>
                                   {isAbsent ? (
                                     <Typography variant="caption" color={alpha(DANGER, 0.5)} sx={{ fontStyle: "italic" }}>No record</Typography>
@@ -1579,4 +1668,5 @@ export default function Attendance() {
       </Snackbar>
     </Box>
   );
+  
 }

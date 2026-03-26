@@ -373,6 +373,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
 
 
   const fetchPunchInStatus = useCallback(async () => {
+     if (!targetUserId) return;
     try {
       const today = new Date().toISOString().split("T")[0];
       const res  = await apiFetch("/attendance", { startDate: today, endDate: today, limit: 1, ...(isAdminView && targetUserId ? { userId: targetUserId } : {}) });
@@ -572,7 +573,7 @@ console.log("FETCH PARAMS:", {
                 </Box>
               </Tooltip>
 
-              <LiveTrackingMap isPunchedIn={isPunchedIn} hasPunchedOut={hasPunchedOut} userId={targetUserId} height="100%" locateTrigger={locateTrigger} />
+              <LiveTrackingMap isPunchedIn={isPunchedIn} hasPunchedOut={hasPunchedOut} userId={targetUserId}   isOwner={!isAdminView} height="100%" locateTrigger={locateTrigger}punchInLocation={punchInLocation} />
             </Box>
 
             {/* Stats row */}

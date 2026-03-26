@@ -1,7 +1,7 @@
 // utils/LiveTrackingMap.jsx
 // All errors now show as toasts. setError state removed.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   startTracking, stopTracking,
   getTrackPoints, isCurrentlyTracking,
@@ -45,6 +45,8 @@ export default function LiveTrackingMap({
   height         = "400px",
   locateTrigger  = 0,
   onPointsChange,
+  isOwner        = true,
+  punchInLocation = null,
 }) {
   const mapDivRef   = useRef(null);
   const gMapRef     = useRef(null);
@@ -197,7 +199,8 @@ export default function LiveTrackingMap({
     return cleaned;
   }
 
-  async function fetchTotalKm() {
+  // ── fetchTotalKm — stable ref, no deps change ──────────────────────────────
+  const fetchTotalKm = useCallback(async () => {
     if (!userId) return;
     try {
       const res  = await fetch(
@@ -209,9 +212,15 @@ export default function LiveTrackingMap({
       const km   = data?.data?.totalKm ?? data?.result?.totalKm ?? data?.totalKm ?? 0;
       setTotalKm(Math.round(km * 100) / 100);
     } catch { /* non-fatal */ }
-  }
+  }, [userId]);
 
-  async function loadTrailFromDB() {
+  // ── loadTrailFromDB — useCallback so punchInLocation is never stale ────────
+  // FIX: was a plain `async function` defined inside the component body,
+  // which means every render created a new closure capturing the punchInLocation
+  // value AT THAT RENDER — but the useEffect dep arrays still held a reference
+  // to the OLD closure, so the 10 s interval and the punch-out timeout always
+  // called the stale version that had punchInLocation = null.
+  const loadTrailFromDB = useCallback(async () => {
     if (!userId || !mapLoaded) return;
     try {
       const now   = new Date();
@@ -239,6 +248,11 @@ export default function LiveTrackingMap({
       if (cleaned.length > 0) {
         allPtsRef.current = cleaned;
         drawTrail(cleaned);
+      } else if (punchInLocation?.lat && punchInLocation?.lng) {
+        // No GPS trail yet — show punch-in marker as starting point
+        const fallback = [{ lat: punchInLocation.lat, lng: punchInLocation.lng }];
+        allPtsRef.current = fallback;
+        drawTrail(fallback);
       }
 
       await fetchTotalKm();
@@ -246,15 +260,27 @@ export default function LiveTrackingMap({
       toast.warn("Could not load location trail. Check your connection.", { title: "Trail Unavailable" });
       console.warn("[LiveTrackingMap] Trail load failed:", e.message);
     }
-  }
+  // FIX: punchInLocation and fetchTotalKm added so the callback always has
+  // the latest punch-in coords and never reads a stale null.
+  }, [userId, mapLoaded, punchInLocation, fetchTotalKm]);
 
-  useEffect(() => { loadTrailFromDB(); }, [userId, mapLoaded]);
+  // ── Initial trail load ─────────────────────────────────────────────────────
+  // FIX: dep is loadTrailFromDB (the stable callback), not [userId, mapLoaded].
+  // Previously [userId, mapLoaded] meant the effect ran with the OLD closure
+  // that still had punchInLocation=null even after the parent updated it.
+  useEffect(() => {
+    loadTrailFromDB();
+  }, [loadTrailFromDB]);
 
+  // ── 10-second polling ──────────────────────────────────────────────────────
+  // FIX: same — dep is loadTrailFromDB so the interval always holds the latest
+  // closure. The old code added punchInLocation to the dep array of the
+  // setInterval effect but NOT to the closure itself, so it still read stale null.
   useEffect(() => {
     if (!userId || !mapLoaded) return;
     const interval = setInterval(() => { loadTrailFromDB(); }, 10_000);
     return () => clearInterval(interval);
-  }, [userId, mapLoaded]);
+  }, [loadTrailFromDB, userId, mapLoaded]);
 
   // ── Start / stop on punch ──────────────────────────────────────────────────
   useEffect(() => {
@@ -265,7 +291,7 @@ export default function LiveTrackingMap({
     prevPunchedIn.current  = isPunchedIn;
     prevPunchedOut.current = hasPunchedOut;
 
-    if (isPunchedIn && !hasPunchedOut && !wasIn) {
+    if (isPunchedIn && !hasPunchedOut && !wasIn && isOwner) {
       startTracking((allPts) => {
         const livePts = allPts.map(p => ({ lat: p.lat, lng: p.lng }));
         const merged  = [...allPtsRef.current];
@@ -286,12 +312,14 @@ export default function LiveTrackingMap({
 
     if (hasPunchedOut && !wasOut) {
       if (isCurrentlyTracking()) stopTracking();
+      // FIX: was calling the plain function directly — now calls the stable
+      // useCallback so the final reload after punch-out sees the real punchInLocation.
       setTimeout(() => loadTrailFromDB(), 2000);
     }
-  }, [isPunchedIn, hasPunchedOut, socket, mapLoaded]);
+  }, [isPunchedIn, hasPunchedOut, socket, mapLoaded, loadTrailFromDB]);
 
   useEffect(() => {
-    if (!isPunchedIn || hasPunchedOut || !mapLoaded) return;
+    if (!isPunchedIn || hasPunchedOut || !mapLoaded || !isOwner) return;
     const t = setInterval(() => {
       const pts = getTrackPoints();
       if (!pts.length) return;

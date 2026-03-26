@@ -783,6 +783,17 @@ export default function AttendanceDetails({
           {snackbar.message}
         </Alert>
       </Snackbar>
+      {/* ✅ Missed punch-out alert */}
+{attendance?.missedPunchOut && (
+  <Alert
+    severity="warning"
+    sx={{ borderRadius: 2, mb: 2, fontWeight: 600 }}
+  >
+    {attendance.punchOutMessage || "User did not punch out this day"}
+    {attendance.punchOut?.isAutoPunchOut &&
+      " — System auto punched out after 12 hours."}
+  </Alert>
+)}
     </>
   );
 }
