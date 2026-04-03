@@ -33,6 +33,11 @@ import AttendanceDetails, {
 } from "./AttendanceDetails";
 import { format, differenceInSeconds } from "date-fns";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
+import {
+  startTracking,
+  stopTracking,
+  isCurrentlyTracking,
+} from "../utils/Locationtracker";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API       = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
@@ -112,12 +117,6 @@ const getJoinDateFromObjectId = (objectId) => {
 };
 
 // ─── Helper: resolve calendar status for a day ───────────────────────────────
-// Rules:
-//   • Before join date (account creation) → no color (undefined)
-//   • Weekend / future                    → no color (undefined)
-//   • Has attendance record               → use record status (green/yellow/etc)
-//   • Past weekday, no record             → "absent" (red)
-//   • Today with no punch yet             → no color (undefined)
 const resolveCalendarStatus = (dateMs, att, todayMs, joinDateMs) => {
   const d          = new Date(dateMs);
   const isWeekend  = [0, 6].includes(d.getDay());
@@ -125,16 +124,9 @@ const resolveCalendarStatus = (dateMs, att, todayMs, joinDateMs) => {
   const isFuture   = dateMs > todayMs;
   const isBeforeJoin = dateMs < joinDateMs;
 
-  // No color: weekend, future, or before account was created
   if (isWeekend || isFuture || isBeforeJoin) return undefined;
-
-  // Has attendance record — trust the backend status
   if (att) return att.status || "present";
-
-  // Past weekday with no record → absent
   if (isPast) return "absent";
-
-  // Today, not punched in yet → no color
   return undefined;
 };
 
@@ -673,8 +665,6 @@ export default function Attendance() {
   const showPunchControls = !isAdminView && !isManagerRole;
 
   // ── FIX 1: Separate calendar attendance state ─────────────────────────────
-  // This is independent of the log's period filter so the calendar always
-  // shows the full month regardless of what filter is selected in the log.
   const [calendarAttendances, setCalendarAttendances] = useState([]);
 
   const fetchCalendarMonth = useCallback(async (monthDate) => {
@@ -822,6 +812,17 @@ export default function Attendance() {
     return () => clearInterval(interval);
   }, [hasPunchedIn, hasPunchedOut, user?._id]);
 
+  // ── Auto-resume GPS tracking if page reloads while punched in ────────────
+  useEffect(() => {
+    if (hasPunchedIn && !hasPunchedOut && !isAdminView && !isCurrentlyTracking()) {
+      startTracking(null, null);
+    }
+    return () => {
+      if (isCurrentlyTracking()) stopTracking();
+    };
+  }, [hasPunchedIn, hasPunchedOut, isAdminView]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const openPunchModal = useCallback((mode) => {
     if (mode === "in" && hasPunchedIn) {
       showSnack(hasPunchedOut ? "Attendance complete for today. See you tomorrow!" : "Already punched in. Use Punch Out when done.", "warning");
@@ -861,6 +862,7 @@ export default function Attendance() {
         await loadData();
         // Also refresh calendar for current month after punch
         await fetchCalendarMonth(currentMonth);
+
         if (mode === "in") {
           timer.start(new Date());
           const token = localStorage.getItem("token");
@@ -870,7 +872,17 @@ export default function Attendance() {
             battery.addEventListener("levelchange",    () => saveBattery(user._id, token));
             battery.addEventListener("chargingchange", () => saveBattery(user._id, token));
           }
+          // ✅ Start GPS tracking the moment employee punches in
+          if (!isCurrentlyTracking()) {
+            startTracking(null, null);
+          }
         }
+
+        if (mode === "out") {
+          // ✅ Stop GPS tracking when employee punches out
+          if (isCurrentlyTracking()) stopTracking();
+        }
+
       } else {
         showSnack(result?.error || `Punch ${mode} failed`, "error");
       }
@@ -886,22 +898,16 @@ export default function Attendance() {
   }, [punchLoading, geo]);
 
   // ─── Calendar Days ────────────────────────────────────────────────────────
-  // FIX 3: Uses calendarAttendances (full month fetch) instead of filtered attendances.
-  // FIX 4: joinDateMs fallback uses start-of-displayed-month instead of today,
-  //         so all past weekdays without records are correctly marked absent.
   const calendarDays = useMemo(() => {
     const y = currentMonth.getFullYear(), m = currentMonth.getMonth();
     const firstDay    = new Date(y, m, 1).getDay();
     const daysInMonth = new Date(y, m + 1, 0).getDate();
 
-    // today at midnight — fixed timestamp
     const todayMidnight = new Date();
     todayMidnight.setHours(0, 0, 0, 0);
     const todayMs = todayMidnight.getTime();
 
-    // ── Resolve join date ─────────────────────────────────────────────────
     const joinDateMs = (() => {
-      // 1. Backend createdAt (once backend sends it)
       const raw = isAdminView
         ? (memberInfo?.createdAt || memberInfo?.memberCreatedAt || memberInfo?.joinDate)
         : (user?.createdAt || user?.joinDate || user?.joiningDate);
@@ -914,14 +920,12 @@ export default function Attendance() {
         }
       }
 
-      // 2. Decode from MongoDB ObjectId — primary working method
       const objectId = isAdminView ? String(paramUserId || "") : String(user?._id || "");
       const decoded  = getJoinDateFromObjectId(objectId);
       if (decoded) {
         return decoded.getTime();
       }
 
-      // 3. Earliest attendance record in the calendar month fetch
       if (calendarAttendances?.length > 0) {
         const earliest = calendarAttendances.reduce((min, a) => {
           const d = new Date(a.date);
@@ -931,10 +935,6 @@ export default function Attendance() {
         return earliest;
       }
 
-      // ── FIX 4: Fallback to start of the DISPLAYED month, NOT today ────
-      // Using today as fallback was blocking all past days in the month
-      // from being marked absent. Start-of-month means all past weekdays
-      // in the current calendar view will correctly show the red absent dot.
       const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
       startOfMonth.setHours(0, 0, 0, 0);
       return startOfMonth.getTime();
@@ -942,7 +942,6 @@ export default function Attendance() {
 
     const days = [];
 
-    // Previous month filler cells
     for (let i = firstDay - 1; i >= 0; i--) {
       const d = new Date(y, m, -i);
       days.push({ day: d.getDate(), date: d, isPrev: true });
@@ -953,9 +952,6 @@ export default function Attendance() {
       date.setHours(0, 0, 0, 0);
       const dateMs = date.getTime();
 
-      // ── FIX 3: Use calendarAttendances (full month) for calendar dots ─
-      // Previously used `attendances` which is filtered by the log's period
-      // selector, meaning "This Week" would hide most of the month's records.
       const att = calendarAttendances?.find(
         (a) => new Date(a.date).toDateString() === date.toDateString()
       );
@@ -969,20 +965,16 @@ export default function Attendance() {
 
   const DOW = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-  // ── Merged log: real attendance records + synthetic absent rows ───────────
-  // This makes absent days appear in the Attendance Log table just like
-  // present days, so the user can see every day clearly in one place.
+  // ── Merged log ────────────────────────────────────────────────────────────
   const mergedLog = useMemo(() => {
     const todayMidnight = new Date();
     todayMidnight.setHours(0, 0, 0, 0);
     const todayMs = todayMidnight.getTime();
 
-    // Build a set of dates that already have a real attendance record
     const recordedDates = new Set(
       (calendarAttendances || []).map((a) => new Date(a.date).toDateString())
     );
 
-    // Collect absent rows from calendarDays (past weekdays with status "absent")
     const absentRows = calendarDays
       .filter((c) => !c.isPrev && c.status === "absent" && c.date)
       .filter((c) => !recordedDates.has(c.date.toDateString()))
@@ -994,25 +986,20 @@ export default function Attendance() {
         punchOut:       null,
         workHours:      0,
         workHoursFormatted: "—",
-        _isAbsentRow:   true, // flag so we know it's synthetic
+        _isAbsentRow:   true,
       }));
 
-    // Merge: real records first, then absent rows for days not already covered
     const real = attendances || [];
 
-    // If filter is active (status filter = absent), show only absent rows
-    // If status filter = present/late/etc, hide absent rows
     if (filters.status && filters.status !== "absent") {
-      return real; // absent rows don't match other status filters
+      return real;
     }
     if (filters.status === "absent") {
-      // Show both real absent records + synthetic absent rows
       return [...real, ...absentRows].sort(
         (a, b) => new Date(b.date) - new Date(a.date)
       );
     }
 
-    // Default: merge all, sort by date descending
     return [...real, ...absentRows].sort(
       (a, b) => new Date(b.date) - new Date(a.date)
     );
@@ -1020,7 +1007,6 @@ export default function Attendance() {
 
   const handleDateSelect = useCallback((d) => {
     setSelectedDate(d);
-    // FIX: Also check calendarAttendances when clicking a date on calendar
     const att = calendarAttendances?.find((a) => new Date(a.date).toDateString() === d.toDateString())
              || attendances?.find((a) => new Date(a.date).toDateString() === d.toDateString());
     if (att) { setSelLog(att); setLogOpen(true); }
@@ -1033,7 +1019,6 @@ export default function Attendance() {
     const res = await deleteAttendance(id);
     if (res?.success) {
       await loadData();
-      // Also refresh calendar after delete
       await fetchCalendarMonth(currentMonth);
     }
     setDeleteOpen(false); setDeleteTarget(null);
@@ -1158,7 +1143,6 @@ export default function Attendance() {
 
       {/* ── Stats ───────────────────────────────────────────────────────── */}
       {(() => {
-        // Compute real counts from merged data so boxes are never 0
         const totalDays   = mergedLog.length;
         const workHours   = (summary?.totalWorkHours || 0).toFixed(1);
         const presentCount = mergedLog.filter((a) => !a._isAbsentRow && (a.status === "present" || (!a.status && a.punchIn))).length
@@ -1248,7 +1232,6 @@ export default function Attendance() {
                       },
                     }}
                   >
-                    {/* Decorative circle */}
                     <Box sx={{
                       position: "absolute", top: -18, right: -18,
                       width: 72, height: 72, borderRadius: "50%",
@@ -1259,7 +1242,6 @@ export default function Attendance() {
                       <Skeleton variant="rectangular" height={80} sx={{ borderRadius: 2 }} />
                     ) : (
                       <Stack spacing={1.25}>
-                        {/* Icon + value row */}
                         <Stack direction="row" justifyContent="space-between" alignItems="center">
                           <Box sx={{
                             width: { xs: 36, sm: 42 }, height: { xs: 36, sm: 42 },
@@ -1282,8 +1264,6 @@ export default function Attendance() {
                             {s.value}
                           </Typography>
                         </Stack>
-
-                        {/* Label + sub */}
                         <Box>
                           <Typography
                             sx={{
@@ -1302,8 +1282,6 @@ export default function Attendance() {
                             {s.sub}
                           </Typography>
                         </Box>
-
-                        {/* Bottom accent bar */}
                         <Box sx={{
                           height: 3, borderRadius: "999px",
                           bgcolor: alpha(s.color, 0.18),

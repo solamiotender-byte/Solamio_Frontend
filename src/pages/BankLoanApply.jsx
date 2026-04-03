@@ -248,7 +248,7 @@ const hasAccess = (userRole) => ALLOWED_ROLES.includes(userRole);
 
 const getUserPermissions = (userRole) => ({
   canView: true,
-  canEdit: true,
+  canEdit:  ["Head_office", "ZSM"].includes(userRole),
   canDelete: userRole === "Head_office",
   canManage: ["Head_office", "ZSM", "ASM"].includes(userRole),
   canSeeAll: ["Head_office", "ZSM", "ASM"].includes(userRole),

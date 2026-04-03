@@ -1,6 +1,4 @@
 // utils/LiveTrackingMap.jsx
-// All errors now show as toasts. setError state removed.
-
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   startTracking, stopTracking,
@@ -10,7 +8,8 @@ import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
 const API    = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
-const GKEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||"AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
+// ✅ FIXED: no hardcoded key — reads from .env only
+const GKEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 const TTL_MS = 10 * 60 * 60 * 1000;
 
 const getToken = () =>
@@ -39,22 +38,22 @@ function loadGoogleMaps() {
 }
 
 export default function LiveTrackingMap({
-  isPunchedIn    = false,
-  hasPunchedOut  = false,
-  userId         = null,
-  height         = "400px",
-  locateTrigger  = 0,
+  isPunchedIn     = false,
+  hasPunchedOut   = false,
+  userId          = null,
+  height          = "400px",
+  locateTrigger   = 0,
   onPointsChange,
-  isOwner        = true,
+  isOwner         = true,
   punchInLocation = null,
 }) {
-  const mapDivRef   = useRef(null);
-  const gMapRef     = useRef(null);
-  const polyRef     = useRef(null);
-  const startMkRef  = useRef(null);
-  const liveMkRef   = useRef(null);
-  const dotsRef     = useRef([]);
-  const allPtsRef   = useRef([]);
+  const mapDivRef  = useRef(null);
+  const gMapRef    = useRef(null);
+  const polyRef    = useRef(null);
+  const startMkRef = useRef(null);
+  const liveMkRef  = useRef(null);
+  const dotsRef    = useRef([]);
+  const allPtsRef  = useRef([]);
 
   const [mapLoaded,  setMapLoaded]  = useState(false);
   const [accuracy,   setAccuracy]   = useState(null);
@@ -199,7 +198,7 @@ export default function LiveTrackingMap({
     return cleaned;
   }
 
-  // ── fetchTotalKm — stable ref, no deps change ──────────────────────────────
+  // ── fetchTotalKm ───────────────────────────────────────────────────────────
   const fetchTotalKm = useCallback(async () => {
     if (!userId) return;
     try {
@@ -214,19 +213,15 @@ export default function LiveTrackingMap({
     } catch { /* non-fatal */ }
   }, [userId]);
 
-  // ── loadTrailFromDB — useCallback so punchInLocation is never stale ────────
-  // FIX: was a plain `async function` defined inside the component body,
-  // which means every render created a new closure capturing the punchInLocation
-  // value AT THAT RENDER — but the useEffect dep arrays still held a reference
-  // to the OLD closure, so the 10 s interval and the punch-out timeout always
-  // called the stale version that had punchInLocation = null.
+  // ── loadTrailFromDB ────────────────────────────────────────────────────────
   const loadTrailFromDB = useCallback(async () => {
     if (!userId || !mapLoaded) return;
     try {
       const now   = new Date();
       const since = new Date(now.getTime() - TTL_MS);
       const url   = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
-      const res   = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
 
       if (res.status === 401) {
         toast.error("Session expired. Please log in again.", { title: "Authentication Error" });
@@ -249,7 +244,6 @@ export default function LiveTrackingMap({
         allPtsRef.current = cleaned;
         drawTrail(cleaned);
       } else if (punchInLocation?.lat && punchInLocation?.lng) {
-        // No GPS trail yet — show punch-in marker as starting point
         const fallback = [{ lat: punchInLocation.lat, lng: punchInLocation.lng }];
         allPtsRef.current = fallback;
         drawTrail(fallback);
@@ -260,25 +254,13 @@ export default function LiveTrackingMap({
       toast.warn("Could not load location trail. Check your connection.", { title: "Trail Unavailable" });
       console.warn("[LiveTrackingMap] Trail load failed:", e.message);
     }
-  // FIX: punchInLocation and fetchTotalKm added so the callback always has
-  // the latest punch-in coords and never reads a stale null.
   }, [userId, mapLoaded, punchInLocation, fetchTotalKm]);
 
-  // ── Initial trail load ─────────────────────────────────────────────────────
-  // FIX: dep is loadTrailFromDB (the stable callback), not [userId, mapLoaded].
-  // Previously [userId, mapLoaded] meant the effect ran with the OLD closure
-  // that still had punchInLocation=null even after the parent updated it.
-  useEffect(() => {
-    loadTrailFromDB();
-  }, [loadTrailFromDB]);
+  useEffect(() => { loadTrailFromDB(); }, [loadTrailFromDB]);
 
-  // ── 10-second polling ──────────────────────────────────────────────────────
-  // FIX: same — dep is loadTrailFromDB so the interval always holds the latest
-  // closure. The old code added punchInLocation to the dep array of the
-  // setInterval effect but NOT to the closure itself, so it still read stale null.
   useEffect(() => {
     if (!userId || !mapLoaded) return;
-    const interval = setInterval(() => { loadTrailFromDB(); }, 10_000);
+    const interval = setInterval(() => loadTrailFromDB(), 10_000);
     return () => clearInterval(interval);
   }, [loadTrailFromDB, userId, mapLoaded]);
 
@@ -312,8 +294,6 @@ export default function LiveTrackingMap({
 
     if (hasPunchedOut && !wasOut) {
       if (isCurrentlyTracking()) stopTracking();
-      // FIX: was calling the plain function directly — now calls the stable
-      // useCallback so the final reload after punch-out sees the real punchInLocation.
       setTimeout(() => loadTrailFromDB(), 2000);
     }
   }, [isPunchedIn, hasPunchedOut, socket, mapLoaded, loadTrailFromDB]);
@@ -348,10 +328,8 @@ export default function LiveTrackingMap({
   useEffect(() => {
     if (!socket) return;
 
-    const onAck   = (data) => setSockAck(data.timestamp);
-    const onError = (data) => {
-      toast.error(data.message || "Socket error occurred.", { title: "Live Sync Error" });
-    };
+    const onAck        = (data) => setSockAck(data.timestamp);
+    const onError      = (data) => toast.error(data.message || "Socket error occurred.", { title: "Live Sync Error" });
     const onLiveUpdate = (data) => {
       if (!data.lat || !data.lng) return;
       const newPt  = { lat: data.lat, lng: data.lng };
@@ -419,7 +397,6 @@ export default function LiveTrackingMap({
 
   return (
     <div style={{ position: "relative", width: "100%", height, borderRadius: "inherit" }}>
-
       <div ref={mapDivRef} style={{ width: "100%", height: "100%", borderRadius: "inherit" }} />
 
       {!mapLoaded && (
@@ -493,7 +470,7 @@ export default function LiveTrackingMap({
           boxShadow: "0 2px 10px rgba(0,0,0,0.12)", pointerEvents: "none",
           display: "flex", alignItems: "center", gap: 10, border: "1px solid #e2e8f0",
         }}>
-          <span>📍 {pointCount} red mark{pointCount !== 1 ? "s" : ""}</span>
+          <span>📍 {pointCount} point{pointCount !== 1 ? "s" : ""}</span>
           {totalKm > 0 && (
             <><span style={{ color: "#e2e8f0" }}>|</span>
             <span style={{ color: "#4569ea" }}>🛣 {totalKm.toFixed(2)} km</span></>

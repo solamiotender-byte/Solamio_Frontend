@@ -83,6 +83,7 @@ export function startTracking(onPoint = null, socket = null) {
     toast.error("GPS not supported on this device.", { title: "Tracker Error" });
     return;
   }
+console.log("🟢 TRACKING STARTED — will save to DB every 15s");
 
   isTracking          = true;
   buffer              = [];
@@ -157,7 +158,7 @@ export function startTracking(onPoint = null, socket = null) {
       buffer.push(pt);
       allPoints.push(pt);
 
-      flushBuffer();
+      // flushBuffer();
 
       // ✅ Use safeEmit instead of socketRef.emit directly
       if (socketRef?.connected) {
@@ -251,7 +252,7 @@ async function createAutoVisit(lat, lng, dwellMins = 10) {
     fd.append("address",       geo.address);
     fd.append("isLeadCreated", "no");
     fd.append("remarks",       `Auto-detected stop · stayed ${dwellMins} min · https://maps.google.com/?q=${lat},${lng}`);
-    const res = await fetch(`${API}/api/v1/visit/create`, {
+   const res = await fetch(`${API}/api/v1/visit`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: fd,
@@ -291,6 +292,7 @@ export function stopTracking() {
   recentVisitSpots = [];
   toast.info("Location tracking stopped.", { title: "Tracking Ended" });
   console.log("[Tracker] ■ Stopped");
+  
 }
 
 export function getTrackPoints()      { return [...allPoints]; }
@@ -303,6 +305,7 @@ async function flushBuffer() {
   const token  = getToken();
   const points = [...buffer];
   buffer = [];
+   console.log("🟡 SAVING", points.length, "points to DB, token exists:", !!token);
 
   try {
     const res = await fetch(`${API}/api/v1/location/track/bulk`, {
@@ -311,12 +314,18 @@ async function flushBuffer() {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
+      
       body: JSON.stringify({ points }),
     });
+    console.log("🟢 SAVED — status:", res.status)
 
+    const responseData = await res.json();
+    console.log("🟢 FLUSH RESPONSE:", JSON.stringify(responseData)); // add this
+    
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     _flushFailCount = 0;
     console.log(`[Tracker] ✅ Saved ${points.length} point(s)`);
+    
   } catch (err) {
     buffer = [...points, ...buffer];
     _flushFailCount++;

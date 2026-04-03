@@ -266,7 +266,7 @@ const getUserPermissions = (userRole) => ({
   canManage: ["Head_office", "ZSM", "ASM"].includes(userRole),
   canSeeAll: ["Head_office", "ZSM", "ASM"].includes(userRole),
   canSeeOwn: userRole === "TEAM",
-  canUpdateStatus: ["Head_office", "ZSM", "ASM","TEAM"].includes(userRole),
+  canUpdateStatus: ["Head_office", "ZSM", "ASM"].includes(userRole),
 });
 
 const getBankStatusConfig = (status) => {

@@ -10,6 +10,7 @@ import React, {
 const AuthContext = createContext({});
 const API_BASE_URL = "https://solar-backend-4bsb.onrender.com/api/v1";
 
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within an AuthProvider");

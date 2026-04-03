@@ -44,6 +44,25 @@ const getToken = () =>
   localStorage.getItem('authToken') ||
   localStorage.getItem('accessToken') || '';
 
+// ─── Haversine distance (km) — defined at module level, reused anywhere ───────
+const GKEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||'AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0';
+
+async function getRoadDistanceKm(lat1, lng1, lat2, lng2) {
+  try {
+    const res  = await fetch(
+      `${BASE_URL}/location/route-distance?originLat=${lat1}&originLng=${lng1}&destLat=${lat2}&destLng=${lng2}`,
+      { headers: { Authorization: `Bearer ${getToken()}` } }
+    );
+    const data = await res.json();
+    if (data?.distanceKm != null) return data.distanceKm;
+    console.warn('[Distance] route-distance API returned:', data);
+    return 0;
+  } catch (e) {
+    console.warn('[Distance] getRoadDistanceKm failed:', e.message);
+    return 0;
+  }
+}
+
 // ─── Styled components ────────────────────────────────────────────────────────
 const UploadArea = styled(Box)(({ theme }) => ({
   border: `2px dashed ${alpha(PRIMARY, 0.3)}`,
@@ -148,7 +167,12 @@ const SuccessDialog = ({ open, visitData, onClose }) => {
                 </Grid>
               </Grid>
               {visitData?.distanceFromPreviousKm > 0 && (
-                <Chip icon={<Route />} label={`${visitData.distanceFromPreviousKm.toFixed(2)} km from previous`} size="small" sx={{ mt: 2 }} />
+                <Chip
+                  icon={<Route />}
+                  label={`${Number(visitData.distanceFromPreviousKm).toFixed(2)} km from previous location`}
+                  size="small"
+                  sx={{ mt: 2, bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY, fontWeight: 700 }}
+                />
               )}
             </CardContent>
           </Card>
@@ -170,27 +194,31 @@ export default function VisitDetails({ onClose, onSave }) {
   const navigate = useNavigate();
   const cameraInputRef = useRef(null);
 
-  const [loading,           setLoading]           = useState(false);
-  const [location,          setLocation]          = useState(null);
-  const [locationLoading,   setLocationLoading]   = useState(true);
-  const [locationAttempts,  setLocationAttempts]  = useState(0);
-  const [geocoding,         setGeocoding]         = useState(false);
-  const [imageFile,         setImageFile]         = useState(null);
-  const [preview,           setPreview]           = useState(null);
-  const [formData,          setFormData]          = useState({
+  const [loading,          setLoading]          = useState(false);
+  const [location,         setLocation]         = useState(null);
+  const [locationLoading,  setLocationLoading]  = useState(true);
+  const [locationAttempts, setLocationAttempts] = useState(0);
+  const [geocoding,        setGeocoding]        = useState(false);
+  const [imageFile,        setImageFile]        = useState(null);
+  const [preview,          setPreview]          = useState(null);
+  const [formData,         setFormData]         = useState({
     locationName: '', remarks: '', contactPerson: '', phone: '', email: '',
   });
 
+  // ── Previous location for distance chain A→B→C→D ─────────────────────────
+  const [prevLocation, setPrevLocation] = useState(null); // { lat, lng, label }
+const [roadDistanceKm,      setRoadDistanceKm]      = useState(null);
+const [roadDistanceLoading, setRoadDistanceLoading] = useState(false);
   // 'yes' | 'no' | 'other'
-  const [isLeadCreated,     setIsLeadCreated]     = useState('no');
+  const [isLeadCreated,    setIsLeadCreated]    = useState('no');
 
-  const [error,             setError]             = useState(null);
-  const [success,           setSuccess]           = useState(false);
-  const [createdVisit,      setCreatedVisit]      = useState(null);
-  const [validationErrors,  setValidationErrors]  = useState({});
-  const [bottomNav,         setBottomNav]         = useState(0);
-  const [fullscreenImage,   setFullscreenImage]   = useState(false);
-  const [isOnline,          setIsOnline]          = useState(navigator.onLine);
+  const [error,            setError]            = useState(null);
+  const [success,          setSuccess]          = useState(false);
+  const [createdVisit,     setCreatedVisit]     = useState(null);
+  const [validationErrors, setValidationErrors] = useState({});
+  const [bottomNav,        setBottomNav]        = useState(0);
+  const [fullscreenImage,  setFullscreenImage]  = useState(false);
+  const [isOnline,         setIsOnline]         = useState(navigator.onLine);
 
   // autocomplete
   const [suggestions,     setSuggestions]     = useState([]);
@@ -200,6 +228,8 @@ export default function VisitDetails({ onClose, onSave }) {
   // punch-in
   const [punchInAddress, setPunchInAddress] = useState(null);
   const [punchInTime,    setPunchInTime]    = useState(null);
+  // store punch-in coords so fetchPrevLocation can fall back to them
+  const [punchInCoords,  setPunchInCoords]  = useState(null);
 
   // ── online listener ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -210,12 +240,23 @@ export default function VisitDetails({ onClose, onSave }) {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  // ── punch-in fetch ────────────────────────────────────────────────────────
+
+
+useEffect(() => {
+  if (!prevLocation || !location) { setRoadDistanceKm(null); return; }
+  let cancelled = false;
+  setRoadDistanceLoading(true);
+  getRoadDistanceKm(prevLocation.lat, prevLocation.lng, location.lat, location.lng)
+    .then(km => { if (!cancelled) setRoadDistanceKm(km); })
+    .finally(() => { if (!cancelled) setRoadDistanceLoading(false); });
+  return () => { cancelled = true; };
+}, [prevLocation, location]);
+  // ── Punch-in fetch — also saves coords for distance fallback ─────────────
   useEffect(() => {
     const fetchPunchIn = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
-        const res = await fetch(
+        const res   = await fetch(
           `${BASE_URL}/attendance?startDate=${today}&endDate=${today}&limit=1`,
           { headers: { Authorization: `Bearer ${getToken()}` } }
         );
@@ -227,26 +268,80 @@ export default function VisitDetails({ onClose, onSave }) {
           const addr = att.punchIn?.address;
           setPunchInAddress(typeof addr === 'string' ? addr : addr?.full || addr?.short || null);
           setPunchInTime(att.punchIn.time);
+
+          // ✅ Save punch-in coords — used as fallback "previous" location
+          const piLat = att.punchIn?.latitude  ?? att.punchIn?.lat;
+          const piLng = att.punchIn?.longitude ?? att.punchIn?.lng;
+          if (piLat && piLng) {
+            setPunchInCoords({ lat: parseFloat(piLat), lng: parseFloat(piLng) });
+          }
         }
       } catch (e) { console.warn('Punch-in fetch failed:', e.message); }
     };
     fetchPunchIn();
   }, []);
 
+  // ── Fetch previous location for distance chain ────────────────────────────
+  // Runs after punchInCoords is ready (dep array includes it).
+  // Priority: last visit of today → punch-in coords → null (no distance)
+  useEffect(() => {
+    const fetchPrevLocation = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const res   = await fetch(
+          `${BASE_URL}/visit?startDate=${today}&endDate=${today}&limit=1&sort=-createdAt`,
+          { headers: { Authorization: `Bearer ${getToken()}` } }
+        );
+        const data   = await res.json();
+        const visits = data?.result?.visits || data?.data?.visits || data?.data || [];
+        const last   = Array.isArray(visits) ? visits[0] : null;
+
+        if (last?.coordinates?.lat && last?.coordinates?.lng) {
+  setPrevLocation({
+    lat:   parseFloat(last.coordinates.lat),
+    lng:   parseFloat(last.coordinates.lng),
+            label: last.locationName || 'Previous visit',
+          });
+          console.log('[Distance] Previous = last visit:', last.locationName);
+        } else if (punchInCoords) {
+          // ✅ No visits yet today — fall back to punch-in location (A→B)
+          setPrevLocation({ ...punchInCoords, label: 'Punch-in location' });
+          console.log('[Distance] Previous = punch-in location');
+        } else {
+          // No previous reference available — distance will be 0
+          setPrevLocation(null);
+          console.log('[Distance] No previous location found');
+        }
+      } catch (e) {
+        console.warn('[Distance] fetchPrevLocation failed:', e.message);
+        // Still fall back to punch-in coords if the visit fetch fails
+        if (punchInCoords) {
+          setPrevLocation({ ...punchInCoords, label: 'Punch-in location' });
+        }
+      }
+    };
+    fetchPrevLocation();
+  }, [punchInCoords]); // re-runs once punchInCoords is populated
+
   // ── reverse geocode ───────────────────────────────────────────────────────
   const reverseGeocode = useCallback(async (lat, lng) => {
     try {
       setGeocoding(true);
-      const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, { headers: { 'Accept-Language': 'en' } });
+      const res  = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+        { headers: { 'Accept-Language': 'en' } }
+      );
       const data = await res.json();
       if (data?.display_name) {
         const a = data.address || {};
-        const label = a.shop || a.amenity || a.building ||
-          [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village].filter(Boolean).join(', ');
+        const label =
+          a.shop || a.amenity || a.building ||
+          [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village]
+            .filter(Boolean).join(', ');
         return label || data.display_name;
       }
     } catch (e) { console.warn('Reverse geocode failed:', e); }
-    finally { setGeocoding(false); }
+    finally     { setGeocoding(false); }
     return null;
   }, []);
 
@@ -254,7 +349,11 @@ export default function VisitDetails({ onClose, onSave }) {
   const getCurrentLocation = useCallback((highAccuracy = true, attempt = 0) => {
     setLocationLoading(true);
     setError(null);
-    if (!navigator.geolocation) { setError('Geolocation not supported'); setLocationLoading(false); return; }
+    if (!navigator.geolocation) {
+      setError('Geolocation not supported');
+      setLocationLoading(false);
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = pos.coords.latitude;
@@ -263,16 +362,23 @@ export default function VisitDetails({ onClose, onSave }) {
         setLocationAttempts(0);
         setLocationLoading(false);
         const name = await reverseGeocode(lat, lng);
-        if (name) setFormData(prev => ({ ...prev, locationName: prev.locationName.trim() === '' ? name : prev.locationName }));
+        if (name) setFormData(prev => ({
+          ...prev,
+          locationName: prev.locationName.trim() === '' ? name : prev.locationName,
+        }));
       },
       (err) => {
         if ((err.code === err.TIMEOUT || err.code === 3) && highAccuracy && attempt < 1) {
-          setError('High accuracy timeout, retrying…'); setLocationAttempts(attempt + 1);
-          setTimeout(() => getCurrentLocation(false, attempt + 1), 1000); return;
+          setError('High accuracy timeout, retrying…');
+          setLocationAttempts(attempt + 1);
+          setTimeout(() => getCurrentLocation(false, attempt + 1), 1000);
+          return;
         }
         if ((err.code === err.TIMEOUT || err.code === 3) && attempt < 2) {
-          setError(`Location timeout — retrying (${attempt + 1}/3)…`); setLocationAttempts(attempt + 1);
-          setTimeout(() => getCurrentLocation(highAccuracy, attempt + 1), 2000); return;
+          setError(`Location timeout — retrying (${attempt + 1}/3)…`);
+          setLocationAttempts(attempt + 1);
+          setTimeout(() => getCurrentLocation(highAccuracy, attempt + 1), 2000);
+          return;
         }
         setError(err.code === 1 ? 'Location permission denied.' : err.message || 'Failed to get location');
         setLocationLoading(false);
@@ -288,7 +394,10 @@ export default function VisitDetails({ onClose, onSave }) {
     if (!query || query.trim().length < 1) { setSuggestions([]); setShowSuggestions(false); return; }
     try {
       setSearchingLeads(true);
-      const res = await fetch(`${BASE_URL}/lead/getAll?search=${encodeURIComponent(query)}&limit=5`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const res  = await fetch(
+        `${BASE_URL}/lead/getAll?search=${encodeURIComponent(query)}&limit=5`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
       const data = await res.json();
       const leads = data?.result?.leads || data?.result || [];
       setSuggestions(leads);
@@ -298,8 +407,14 @@ export default function VisitDetails({ onClose, onSave }) {
   }, []);
 
   const handleSelectSuggestion = (lead) => {
-    setFormData(prev => ({ ...prev, contactPerson: `${lead.firstName} ${lead.lastName}`.trim(), phone: lead.phone || '', email: lead.email || '' }));
-    setSuggestions([]); setShowSuggestions(false);
+    setFormData(prev => ({
+      ...prev,
+      contactPerson: `${lead.firstName} ${lead.lastName}`.trim(),
+      phone: lead.phone || '',
+      email: lead.email || '',
+    }));
+    setSuggestions([]);
+    setShowSuggestions(false);
   };
 
   // ── camera ────────────────────────────────────────────────────────────────
@@ -315,7 +430,11 @@ export default function VisitDetails({ onClose, onSave }) {
     e.target.value = '';
   };
 
-  const handleRemovePhoto = () => { setImageFile(null); setPreview(null); if (cameraInputRef.current) cameraInputRef.current.value = ''; };
+  const handleRemovePhoto = () => {
+    setImageFile(null);
+    setPreview(null);
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  };
 
   // ── form helpers ──────────────────────────────────────────────────────────
   const handleChange = (field) => (e) => {
@@ -353,62 +472,63 @@ export default function VisitDetails({ onClose, onSave }) {
     setLoading(true);
     setError(null);
 
-    // ✅ Compute once, reuse everywhere
     const now       = new Date();
     const visitDate = now.toISOString().split('T')[0];
     const visitTime = now.toTimeString().slice(0, 5);
 
+    // ✅ Calculate distance from previous location (A→B, B→C, C→D …)
+ const distanceKm = roadDistanceKm ?? 0;
+
+    console.log(
+      `[Distance] ${prevLocation?.label || 'none'} → ${formData.locationName}: ${distanceKm.toFixed(3)} km`
+    );
+
     try {
       const fd = new FormData();
 
-      // ✅ All text fields BEFORE the file so the backend always reads them
-      fd.append('latitude',      location.lat.toString());
-      fd.append('longitude',     location.lng.toString());
-      fd.append('locationName',  formData.locationName.trim());
-      fd.append('isLeadCreated', isLeadCreated);
-      fd.append('visitDate',     visitDate);
-      fd.append('visitTime',     visitTime);
-      fd.append('visitStatus',   'Completed');
+      fd.append('latitude',               location.lat.toString());
+      fd.append('longitude',              location.lng.toString());
+      fd.append('locationName',           formData.locationName.trim());
+      fd.append('isLeadCreated',          isLeadCreated);
+      fd.append('visitDate',              visitDate);
+      fd.append('visitTime',              visitTime);
+      fd.append('visitStatus',            'Completed');
+      fd.append('distanceFromPreviousKm', distanceKm.toFixed(3)); // ✅ A→B distance
 
       if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
 
-      // Contact fields only when not 'other'
       if (isLeadCreated !== 'other') {
         if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
         if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
         if (formData.email.trim())         fd.append('email',         formData.email.trim());
       }
 
-      // ✅ File appended once, at the very end
       fd.append('photos', imageFile);
 
       // Step 1 — save the visit
       const visitRes  = await fetch(`${BASE_URL}/visit`, {
-        method: 'POST',
+        method:  'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
-        body: fd,
+        body:    fd,
       });
       const visitJson = await visitRes.json();
       if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
 
-      // Step 2 — create lead for 'yes' and 'no' when contact person is provided
-      if ((isLeadCreated === 'yes' || isLeadCreated === 'no') && formData.contactPerson.trim()) {
+      // ✅ Update prevLocation immediately so next visit in same session uses
+      // this visit as its "previous" — handles rapid back-to-back visit creation
+      setPrevLocation({
+        lat:   location.lat,
+        lng:   location.lng,
+        label: formData.locationName.trim(),
+      });
+
+      // Step 2 — create lead
+      if (isLeadCreated === 'yes' && formData.contactPerson.trim()) {
         const nameParts = formData.contactPerson.trim().split(' ');
         const firstName = nameParts[0] || 'Unknown';
         const lastName  = nameParts.slice(1).join(' ') || '.';
-
-        // 🔍 DEBUG — open browser Console (F12) to see this
-        console.log('📦 Lead payload being sent:', JSON.stringify({
-          firstName, lastName,
-          visitDate,
-          visitTime,
-          visitLocation: formData.locationName.trim(),
-          visitNotes: formData.remarks.trim(),
-          visitStatus: 'Completed',
-          status: 'Visit',
-        }, null, 2));
-        const leadRes = await fetch(`${BASE_URL}/lead/create`, {
-          method: 'POST',
+        const leadRes   = await fetch(`${BASE_URL}/lead/create`, {
+          method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
           body: JSON.stringify({
             firstName,
@@ -416,29 +536,28 @@ export default function VisitDetails({ onClose, onSave }) {
             phone:         formData.phone.trim(),
             email:         formData.email.trim(),
             visitLocation: formData.locationName.trim(),
-          date: visitDate,
-time: visitTime,
+            date:          visitDate,
+            time:          visitTime,
             visitNotes:    formData.remarks.trim(),
             visitStatus:   'Completed',
-            status:        'Visit',
+            status:        'Lead',
           }),
         });
         const leadJson = await leadRes.json();
         if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
-        console.log('✅ Lead response from backend:', JSON.stringify(leadJson, null, 2));
       }
 
-      // Step 3 — 'other': save remarks as visitNotes, now includes visitDate & visitTime
+      // Step 3 — 'other' visit notes
       if (isLeadCreated === 'other' && formData.remarks.trim()) {
         const leadRes = await fetch(`${BASE_URL}/lead/create`, {
-          method: 'POST',
+          method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
           body: JSON.stringify({
             firstName:     'Other',
             lastName:      'Visit',
             visitLocation: formData.locationName.trim(),
-            date: visitDate,
-            time: visitTime,
+            date:          visitDate,
+            time:          visitTime,
             visitNotes:    formData.remarks.trim(),
             visitStatus:   'Completed',
             status:        'Visit',
@@ -453,7 +572,8 @@ time: visitTime,
       setSuccess(true);
       if (onSave) onSave(visitData);
 
-      setImageFile(null); setPreview(null);
+      setImageFile(null);
+      setPreview(null);
       setFormData({ locationName: '', remarks: '', contactPerson: '', phone: '', email: '' });
       setIsLeadCreated('no');
 
@@ -465,13 +585,16 @@ time: visitTime,
     }
   };
 
-  const canSubmit = !loading && !!location && !!imageFile && !!formData.locationName.trim();
-  const mapCenter = location ? [location.lat, location.lng] : [22.5726, 88.3639];
+  const canSubmit  = !loading && !!location && !!imageFile && !!formData.locationName.trim();
+  const mapCenter  = location ? [location.lat, location.lng] : [22.5726, 88.3639];
+
+  // ── Computed distance preview (shown on map section) ─────────────────────
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: isMobile ? 8 : 4 }}>
 
-      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleCameraCapture} style={{ display: 'none' }} />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment"
+        onChange={handleCameraCapture} style={{ display: 'none' }} />
 
       {/* Header */}
       <Paper sx={{ p: isMobile ? 2 : 3, borderRadius: 0, background: `linear-gradient(135deg, ${PRIMARY} 0%, ${SECONDARY} 100%)`, color: 'white', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 4px 20px rgba(0,0,0,0.1)', mb: 3 }}>
@@ -506,6 +629,29 @@ time: visitTime,
           </Box>
         )}
 
+        {/* ✅ Distance preview banner — shows live A→B distance while user fills form */}
+{prevLocation && location && (
+  <Box sx={{ display:'flex', alignItems:'center', gap:1.5, bgcolor:alpha(PRIMARY,0.06), border:`1px solid ${alpha(PRIMARY,0.2)}`, borderRadius:3, px:2, py:1.25, mb:2.5 }}>
+    <Route sx={{ fontSize:16, color:PRIMARY, flexShrink:0 }} />
+    <Box sx={{ flex:1, minWidth:0 }}>
+      <Typography sx={{ fontSize:'0.78rem', fontWeight:700, color:PRIMARY }}>
+        Road distance from {prevLocation.label}
+      </Typography>
+      <Typography sx={{ fontSize:'0.68rem', color:PRIMARY, opacity:0.8, mt:0.15 }}>
+        Via road · driving route
+      </Typography>
+    </Box>
+    {roadDistanceLoading ? (
+      <CircularProgress size={16} sx={{ color:PRIMARY }} />
+    ) : roadDistanceKm !== null ? (
+      <Chip
+        label={`${roadDistanceKm.toFixed(2)} km`}
+        size="small"
+        sx={{ height:24, fontSize:'0.72rem', fontWeight:800, bgcolor:PRIMARY, color:'#fff', flexShrink:0 }}
+      />
+    ) : null}
+  </Box>
+)}
         <Grid container spacing={isMobile ? 2 : 3}>
 
           {/* Left column */}
@@ -553,8 +699,12 @@ time: visitTime,
                   error={!!validationErrors.locationName} helperText={validationErrors.locationName}
                   disabled={loading} size={isMobile ? 'small' : 'medium'}
                   InputProps={{
-                    startAdornment: <InputAdornment position="start">{geocoding ? <CircularProgress size={16} sx={{ color: PRIMARY }} /> : <LocationOn sx={{ color: alpha(PRIMARY, 0.5) }} />}</InputAdornment>,
-                    endAdornment: geocoding ? <InputAdornment position="end"><Typography variant="caption" color="text.secondary">detecting…</Typography></InputAdornment> : null,
+                    startAdornment: <InputAdornment position="start">
+                      {geocoding ? <CircularProgress size={16} sx={{ color: PRIMARY }} /> : <LocationOn sx={{ color: alpha(PRIMARY, 0.5) }} />}
+                    </InputAdornment>,
+                    endAdornment: geocoding
+                      ? <InputAdornment position="end"><Typography variant="caption" color="text.secondary">detecting…</Typography></InputAdornment>
+                      : null,
                   }} />
               </FormSection>
             </Stack>
@@ -564,7 +714,7 @@ time: visitTime,
           <Grid item xs={12} md={6}>
             <Stack spacing={2}>
 
-              {/* Lead toggle: Yes / No / Other */}
+              {/* Lead toggle */}
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <PersonAdd /> New Lead Created?
@@ -579,7 +729,7 @@ time: visitTime,
                 </FormControl>
               </FormSection>
 
-              {/* Contact Information — shown for 'yes' and 'no', hidden for 'other' */}
+              {/* Contact Information */}
               {isLeadCreated !== 'other' && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                   <FormSection>
@@ -588,8 +738,6 @@ time: visitTime,
                       {isLeadCreated === 'yes' && <Chip label="Lead Created" size="small" color="success" sx={{ ml: 'auto', height: 24 }} />}
                     </Typography>
                     <Stack spacing={2}>
-
-                      {/* Contact person with autocomplete (only when 'no') */}
                       <Box sx={{ position: 'relative' }}>
                         <TextField
                           fullWidth
@@ -613,8 +761,6 @@ time: visitTime,
                               : null,
                           }}
                         />
-
-                        {/* Suggestions dropdown — only when 'no' */}
                         {isLeadCreated === 'no' && showSuggestions && suggestions.length > 0 && (
                           <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999, borderRadius: 2, overflow: 'hidden', border: `1px solid ${alpha(PRIMARY, 0.2)}`, mt: 0.5 }}>
                             {suggestions.map((lead, index) => (
@@ -639,14 +785,12 @@ time: visitTime,
                         )}
                       </Box>
 
-                      {/* Phone */}
                       <TextField fullWidth label="Phone Number" placeholder="Enter phone number"
                         value={formData.phone} onChange={handleChange('phone')}
                         error={!!validationErrors.phone} helperText={validationErrors.phone}
                         disabled={loading} size={isMobile ? 'small' : 'medium'}
                         InputProps={{ startAdornment: <InputAdornment position="start"><Phone sx={{ color: alpha(PRIMARY, 0.5) }} /></InputAdornment> }} />
 
-                      {/* Email */}
                       <TextField fullWidth label="Email Address" placeholder="Enter email" type="email"
                         value={formData.email} onChange={handleChange('email')}
                         error={!!validationErrors.email} helperText={validationErrors.email}
@@ -661,7 +805,9 @@ time: visitTime,
               <FormSection sx={{ padding: '0 !important' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, px: 2.5, pt: 2.5, pb: 1.5 }}>
                   <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY }}><GpsFixed /> Your Location</Typography>
-                  <Button size="small" startIcon={locationLoading ? <CircularProgress size={14} /> : <Refresh />} onClick={() => getCurrentLocation()} disabled={locationLoading} sx={{ color: PRIMARY, width: isMobile ? '100%' : 'auto' }}>
+                  <Button size="small" startIcon={locationLoading ? <CircularProgress size={14} /> : <Refresh />}
+                    onClick={() => getCurrentLocation()} disabled={locationLoading}
+                    sx={{ color: PRIMARY, width: isMobile ? '100%' : 'auto' }}>
                     {locationLoading ? 'Locating…' : 'Refresh'}
                   </Button>
                 </Box>
@@ -669,7 +815,9 @@ time: visitTime,
                   {locationLoading && !location && (
                     <Box sx={{ position: 'absolute', inset: 0, zIndex: 1000, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(4px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                       <CircularProgress size={36} sx={{ color: PRIMARY }} />
-                      <Typography variant="caption" color="text.secondary">{locationAttempts > 0 ? `Attempt ${locationAttempts}/3…` : 'Getting your location…'}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {locationAttempts > 0 ? `Attempt ${locationAttempts}/3…` : 'Getting your location…'}
+                      </Typography>
                       {locationAttempts > 0 && <LinearProgress sx={{ width: 120, borderRadius: 2 }} variant="determinate" value={Math.min(locationAttempts * 33, 99)} />}
                     </Box>
                   )}
@@ -681,8 +829,7 @@ time: visitTime,
                     </Box>
                   )}
                   <MapContainer center={mapCenter} zoom={location ? 17 : 13} style={{ height: '100%', width: '100%' }} zoomControl scrollWheelZoom={false}>
-                    <TileLayer attribution='&copy; Google Maps' url="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}" maxZoom={21} maxNativeZoom={21} />
-                    <TileLayer attribution="" url="https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}" maxZoom={21} maxNativeZoom={21} opacity={1} />
+                    <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
                     {location && <FlyToLocation coords={location} />}
                     {location && (
                       <Marker position={[location.lat, location.lng]}>
@@ -702,7 +849,9 @@ time: visitTime,
                     <Box sx={{ px: 2, py: 1, bgcolor: alpha(PRIMARY, 0.04), borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                         <CheckCircle sx={{ fontSize: 16, color: SUCCESS }} />
-                        <Typography variant="caption" fontFamily="monospace" fontWeight={600} color="text.primary">{location.lat.toFixed(5)}°, {location.lng.toFixed(5)}°</Typography>
+                        <Typography variant="caption" fontFamily="monospace" fontWeight={600} color="text.primary">
+                          {location.lat.toFixed(5)}°, {location.lng.toFixed(5)}°
+                        </Typography>
                       </Box>
                       {location.accuracy && (
                         <Chip size="small" label={`±${location.accuracy.toFixed(0)} m`}
