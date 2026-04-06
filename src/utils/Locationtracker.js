@@ -130,7 +130,7 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
 
       if (last) {
   const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
-  if (dist < 5) return; // ignore small movement
+ if (dist < 0.5) return; // allow more points
 }
 
       if (pt.accuracy > 200 && !_shownPoorGpsToast) {
@@ -199,9 +199,7 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
     }
   );
 
-  flushTimer = setInterval(() => {
-    if (buffer.length > 0) flushBuffer();
-  }, 15_000);
+  
 
   window.addEventListener("requestDwellInfo", handleDwellInfoRequest);
   toast.success("Location tracking started.", { title: "Tracking Active" });
