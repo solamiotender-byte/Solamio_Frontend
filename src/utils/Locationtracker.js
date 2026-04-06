@@ -128,11 +128,10 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
 
       const last = allPoints[allPoints.length - 1];
 
-      if (last &&
-          Math.abs(pt.lat - last.lat) < 0.000001 &&
-          Math.abs(pt.lng - last.lng) < 0.000001) {
-        return;
-      }
+      if (last) {
+  const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
+  if (dist < 5) return; // ignore small movement
+}
 
       if (pt.accuracy > 200 && !_shownPoorGpsToast) {
         toast.warn(`GPS accuracy is poor (±${Math.round(pt.accuracy)}m). Move to open sky for better tracking.`, {
@@ -169,8 +168,8 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
           accuracy: pt.accuracy,
           time:     pt.time,
         });
-      } else if (!_shownOfflineToast) {
-        toast.warn("Socket offline — location still saving to server via REST.", {
+     } else if (!_shownOfflineToast) {
+  toast.warn("Socket offline — location not syncing.",  {
           title: "Live Sync Paused",
         });
         _shownOfflineToast = true;
@@ -308,23 +307,23 @@ async function flushBuffer() {
    console.log("🟡 SAVING", points.length, "points to DB, token exists:", !!token);
 
   try {
-    const res = await fetch(`${API}/api/v1/location/track/bulk`, {
-      method:  "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+    // const res = await fetch(`${API}/api/v1/location/track/bulk`, {
+    //   method:  "POST",
+    //   headers: {
+    //     "Content-Type": "application/json",
+    //     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    //   },
       
-      body: JSON.stringify({ points }),
-    });
-    console.log("🟢 SAVED — status:", res.status)
+    //   body: JSON.stringify({ points }),
+    // });
+    // console.log("🟢 SAVED — status:", res.status)
 
-    const responseData = await res.json();
-    console.log("🟢 FLUSH RESPONSE:", JSON.stringify(responseData)); // add this
+    // const responseData = await res.json();
+    // console.log("🟢 FLUSH RESPONSE:", JSON.stringify(responseData)); // add this
     
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    _flushFailCount = 0;
-    console.log(`[Tracker] ✅ Saved ${points.length} point(s)`);
+    // if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // _flushFailCount = 0;
+    // console.log(`[Tracker] ✅ Saved ${points.length} point(s)`);
     
   } catch (err) {
     buffer = [...points, ...buffer];
