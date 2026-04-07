@@ -7,7 +7,7 @@ import {
 import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
-const API  = "http://localhost:9001";
+const API  = "https://solar-backend-4bsb.onrender.com";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
 // Must match Locationtracker.js — GPS jitter on phones is ±5–15 m

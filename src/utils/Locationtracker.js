@@ -2,7 +2,7 @@
 
 import { toast } from "../components/useToast.jsx";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:9001";
+const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

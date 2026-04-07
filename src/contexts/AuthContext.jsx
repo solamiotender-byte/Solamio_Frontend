@@ -8,7 +8,7 @@ import React, {
 } from "react";
 
 const AuthContext = createContext({});
-const API_BASE_URL = "http://localhost:9001/api/v1";
+const API_BASE_URL = "https://solar-backend-4bsb.onrender.com/api/v1";
 
 
 export const useAuth = () => {
