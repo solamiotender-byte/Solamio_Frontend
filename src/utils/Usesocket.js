@@ -1,110 +1,160 @@
 // hooks/useSocket.js
 // Singleton socket.io connection — one connection shared across the whole app.
-// Matches the JWT auth pattern in your socket/index.js (_id, role, supervisor).
+//
+// FIXES applied:
+// 1. Returns a stable React ref instead of the raw globalSocket variable,
+//    so consumers always hold the live socket even after reconnects.
+// 2. Re-creates the socket if the token changes (e.g. after login).
+// 3. Exposes `socketRef` (object) so Locationtracker.js can call
+//    socketRef.current.emit() and always reach the live socket.
+// 4. Added "reconnect_attempt" log so you can see retry activity in console.
+// 5. setConnected(true/false) is now driven purely by socket events, not by
+//    the initial globalSocket?.connected snapshot which was often stale.
 
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL ="https://solar-backend-4bsb.onrender.com";
+const SOCKET_URL =
+  import.meta.env.VITE_SOCKET_URL ||
+  import.meta.env.VITE_API_URL    ||
+  "http://localhost:9001";
 
-// Module-level singleton — never opens two connections
-let globalSocket = null;
+// ── Module-level singletons ────────────────────────────────────────────────────
+let globalSocket  = null;
+let currentToken  = null;
+
+function getToken() {
+  return (
+    localStorage.getItem("token")       ||
+    localStorage.getItem("authToken")   ||
+    localStorage.getItem("accessToken") ||
+    ""
+  );
+}
 
 /**
- * getOrCreateSocket()
- * Creates the socket once at module level using the stored auth token.
- * Returns null if no token is found.
+ * Returns the existing socket if the token hasn't changed,
+ * otherwise tears down the old one and creates a fresh connection.
  */
 function getOrCreateSocket() {
-  const token =
-    localStorage.getItem("token")      ||
-    localStorage.getItem("authToken")  ||
-    localStorage.getItem("accessToken");
+  const token = getToken();
 
   if (!token) {
-    console.warn("[Socket] No auth token found — socket not created.");
+    console.warn("[Socket] ⚠️  No auth token found — socket not created.");
     return null;
   }
 
-  // Reuse existing singleton
+  // Token changed (e.g. user logged out and back in) → reconnect
+  if (globalSocket && currentToken !== token) {
+    console.log("[Socket] 🔄 Token changed — reconnecting.");
+    globalSocket.disconnect();
+    globalSocket = null;
+  }
+
   if (globalSocket) return globalSocket;
 
-  globalSocket = io(SOCKET_URL, {
+  currentToken  = token;
+  globalSocket  = io(SOCKET_URL, {
     auth:                 { token },
     transports:           ["websocket", "polling"],
     reconnection:         true,
-    reconnectionAttempts: 10,
-    reconnectionDelay:    2000,
-    reconnectionDelayMax: 10_000,
-    timeout:              10_000,
+    reconnectionAttempts: 15,
+    reconnectionDelay:    2_000,
+    reconnectionDelayMax: 15_000,
+    timeout:              12_000,
   });
+
+  // ── Global-level debug logs (outside React) ──────────────────────────────
+  globalSocket.on("connect",         () => console.log("[Socket] ✅ Connected  — id:", globalSocket.id));
+  globalSocket.on("disconnect",      (r) => console.log("[Socket] ⛔ Disconnected —", r));
+  globalSocket.on("connect_error",   (e) => console.warn("[Socket] ✖ Error:", e.message));
+  globalSocket.on("reconnect_attempt",(n) => console.log(`[Socket] ↩ Reconnect attempt #${n}`));
+  globalSocket.on("reconnect",       (n) => console.log(`[Socket] ✅ Reconnected after ${n} attempt(s)`));
 
   console.log("[Socket] 🔌 New socket created →", SOCKET_URL);
   return globalSocket;
 }
 
+// ── Hook ───────────────────────────────────────────────────────────────────────
 /**
  * useSocket()
- * Returns { socket, connected }
- * Safe to call in any component — always returns the same socket instance.
  *
- * FIX: Previously, if globalSocket already existed the hook returned early
- * without attaching connect/disconnect listeners, so `connected` would never
- * update in components that mounted after the first one.
- * Now we ALWAYS attach listeners (and clean them up on unmount).
+ * Returns:
+ *   socket     — the live socket.io instance (or null if no token)
+ *   socketRef  — a React ref whose .current always points to the live socket
+ *   connected  — boolean, true when the socket is connected
+ *
+ * Usage in Locationtracker.js (pass socketRef, not socket):
+ *   startTracking(onPoint, socketRef, userId)
+ *   // Inside tracker: socketRef.current?.emit(...)
  */
 export function useSocket() {
-  // Initialise from the current live state so the first render is correct
-  const [connected, setConnected] = useState(
-    () => globalSocket?.connected ?? false
-  );
+  // socketRef.current always mirrors globalSocket so callers
+  // never hold a stale reference across reconnects.
+  const socketRef = useRef(null);
+
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    // Always get-or-create — never skip listener attachment
     const socket = getOrCreateSocket();
-    if (!socket) return;
 
-    // Sync immediately with current connection state
+    if (!socket) {
+      socketRef.current = null;
+      setConnected(false);
+      return;
+    }
+
+    // Keep the ref current
+    socketRef.current = socket;
+
+    // Sync initial state (socket may already be connected if this hook
+    // mounts after a previous mount already established the connection)
     setConnected(socket.connected);
 
-    // Attach per-component listeners
-    const onConnect    = () => setConnected(true);
-    const onDisconnect = () => setConnected(false);
-    const onError      = (err) => {
-      console.warn("[Socket] ✖ Connection error:", err.message);
-      setConnected(false);
-    };
-    const onReconnect  = () => {
-      console.log("[Socket] ↩ Reconnected");
+    // ── Event listeners ──────────────────────────────────────────────────────
+    const onConnect = () => {
+      socketRef.current = globalSocket; // always the freshest instance
       setConnected(true);
     };
 
-    socket.on("connect",       onConnect);
-    socket.on("disconnect",    onDisconnect);
-    socket.on("connect_error", onError);
-    socket.on("reconnect",     onReconnect);
+    const onDisconnect = () => setConnected(false);
 
-    // Clean up THIS component's listeners on unmount.
-    // Does NOT disconnect the socket — it stays alive globally.
+    const onError = (err) => {
+      console.warn("[Socket] ✖ connect_error in hook:", err.message);
+      setConnected(false);
+    };
+
+    const onReconnect = () => {
+      socketRef.current = globalSocket;
+      setConnected(true);
+    };
+
+    socket.on("connect",        onConnect);
+    socket.on("disconnect",     onDisconnect);
+    socket.on("connect_error",  onError);
+    socket.on("reconnect",      onReconnect);
+
     return () => {
       socket.off("connect",       onConnect);
       socket.off("disconnect",    onDisconnect);
       socket.off("connect_error", onError);
       socket.off("reconnect",     onReconnect);
     };
-  }, []);
+  }, []); // run once — singleton pattern
 
-  // Return globalSocket directly — never null after getOrCreateSocket() ran
-  return { socket: globalSocket, connected };
+  return {
+    socket:    globalSocket, // direct instance (backward-compat)
+    socketRef,               // ✅ stable ref — use this in Locationtracker
+    connected,
+  };
 }
 
-/**
- * Call this on logout to fully close the socket connection.
- */
+// ── Logout helper ──────────────────────────────────────────────────────────────
 export function disconnectSocket() {
   if (globalSocket) {
     globalSocket.disconnect();
-    globalSocket = null;
+    globalSocket  = null;
+    currentToken  = null;
     console.log("[Socket] ■ Disconnected on logout");
   }
 }

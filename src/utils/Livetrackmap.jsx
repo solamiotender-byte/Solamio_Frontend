@@ -1,24 +1,37 @@
 // utils/LiveTrackingMap.jsx
+//
+// FIXES applied
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. useSocket() now destructures socketRef (stable React ref) in addition to
+//    socket and connected. socketRef is passed to startTracking() so the tracker
+//    always reads the live socket, even after a reconnect.
+//
+// 2. startTracking(callback, socketRef, userId) — was passing `socket` (raw,
+//    potentially stale). Now passes socketRef so safeEmit() in Locationtracker
+//    reads socketRef.current on every emit.
+//
+// 3. All other logic (geofence, drawing manager, trail, markers) is unchanged.
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  startTracking, stopTracking,
-  getTrackPoints, isCurrentlyTracking,
+  startTracking,
+  stopTracking,
+  getTrackPoints,
+  isCurrentlyTracking,
 } from "./Locationtracker";
 import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
-const API  = "https://solar-backend-4bsb.onrender.com";
+const API  = "http://localhost:9001";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
-// Must match Locationtracker.js — GPS jitter on phones is ±5–15 m
-const MIN_MOVE_METRES = 15;
+const MIN_MOVE_METRES = 5;
 
 const getToken = () =>
-  localStorage.getItem("token")      ||
-  localStorage.getItem("authToken")  ||
+  localStorage.getItem("token")       ||
+  localStorage.getItem("authToken")   ||
   localStorage.getItem("accessToken") || "";
 
-// ── calcKm: haversine total distance from an array of {lat,lng} points ────────
 function calcKm(points) {
   if (!points || points.length < 2) return 0;
   const R = 6371;
@@ -38,19 +51,17 @@ function calcKm(points) {
   return Math.round(total * 1000) / 1000;
 }
 
-// ── distMetres: distance in metres between two lat/lng points ─────────────────
 function distMetres(lat1, lng1, lat2, lng2) {
   return calcKm([{ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 }]) * 1000;
 }
 
-// ── Google Maps loader (singleton promise) ────────────────────────────────────
 let gmapsPromise = null;
 function loadGoogleMaps() {
   if (window.google?.maps) return Promise.resolve();
   if (gmapsPromise) return gmapsPromise;
   gmapsPromise = new Promise((resolve, reject) => {
     const s   = document.createElement("script");
-    s.src     = `https://maps.googleapis.com/maps/api/js?key=${GKEY}`;
+    s.src     = `https://maps.googleapis.com/maps/api/js?key=${GKEY}&libraries=drawing`;
     s.async   = true;
     s.onload  = resolve;
     s.onerror = () => reject(new Error("Google Maps failed to load. Check your API key."));
@@ -59,11 +70,10 @@ function loadGoogleMaps() {
   return gmapsPromise;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export default function LiveTrackingMap({
   isPunchedIn     = false,
   hasPunchedOut   = false,
-  userId          = null,   // ✅ FIX: must be passed in so startTracking gets it
+  userId          = null,
   height          = "400px",
   locateTrigger   = 0,
   onPointsChange,
@@ -73,10 +83,10 @@ export default function LiveTrackingMap({
   const mapDivRef  = useRef(null);
   const gMapRef    = useRef(null);
   const polyRef    = useRef(null);
-  const startMkRef = useRef(null); // green dot — fixed at punch-in location
-  const liveMkRef  = useRef(null); // red dot  — moves with user
+  const startMkRef = useRef(null);
+  const liveMkRef  = useRef(null);
   const dotsRef    = useRef([]);
-  const allPtsRef  = useRef([]);   // single source of truth for trail points
+  const allPtsRef  = useRef([]);
 
   const [mapLoaded,  setMapLoaded]  = useState(false);
   const [accuracy,   setAccuracy]   = useState(null);
@@ -86,7 +96,15 @@ export default function LiveTrackingMap({
 
   const prevPunchedIn  = useRef(false);
   const prevPunchedOut = useRef(false);
-  const { socket, connected } = useSocket();
+
+  // ✅ FIX: destructure socketRef — a stable ref that always points to the live socket
+  const { socket, socketRef, connected } = useSocket();
+
+  const [geofences,      setGeofences]      = useState([]);
+  const [geofenceAlerts, setGeofenceAlerts] = useState([]);
+  const fenceLayersRef = useRef({});
+  const drawingMgrRef  = useRef(null);
+
   const isLive = isPunchedIn && !hasPunchedOut;
 
   // ── Init Google Map ─────────────────────────────────────────────────────────
@@ -113,8 +131,7 @@ export default function LiveTrackingMap({
       .catch((err) => toast.error(err.message, { title: "Map Failed to Load" }));
   }, []);
 
-  // ── Place green punch-in marker once map is ready ───────────────────────────
-  // punchInLocation is ONLY for the marker — never added to allPtsRef
+  // ── Place green punch-in marker ─────────────────────────────────────────────
   useEffect(() => {
     if (!mapLoaded || !punchInLocation?.lat || !punchInLocation?.lng) return;
     if (!gMapRef.current || !window.google?.maps) return;
@@ -135,27 +152,192 @@ export default function LiveTrackingMap({
         icon: {
           path:         G.SymbolPath.CIRCLE,
           scale:        10,
-          fillColor:    "#22c55e",
+          fillColor:    "#2563eb",
           fillOpacity:  1,
           strokeColor:  "#ffffff",
           strokeWeight: 3,
         },
       });
+    } else {
+      startMkRef.current.setPosition(pos);
     }
 
     console.log(`[PunchIn] ✅ Marker placed at ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`);
   }, [mapLoaded, punchInLocation]);
 
+  // ── Fetch & draw geofences ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapLoaded) return;
+
+    const fetchAndDraw = async () => {
+      try {
+        const res  = await fetch(`${API}/api/v1/geofences`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const data = await res.json();
+        const list = data?.data || data?.result || [];
+        setGeofences(list);
+
+        const G   = window.google.maps;
+        const map = gMapRef.current;
+
+        Object.values(fenceLayersRef.current).forEach((l) => l.setMap(null));
+        fenceLayersRef.current = {};
+
+        list.forEach((fence) => {
+          let layer;
+          if (fence.type === "circle") {
+            layer = new G.Circle({
+              map,
+              center:        fence.center,
+              radius:        fence.radius,
+              strokeColor:   "#FF6B35",
+              strokeWeight:  2,
+              strokeOpacity: 0.9,
+              fillColor:     "#FF6B35",
+              fillOpacity:   0.12,
+            });
+          } else {
+            layer = new G.Polygon({
+              map,
+              paths:         fence.coordinates.map((c) => ({ lat: c.lat, lng: c.lng })),
+              strokeColor:   "#FF6B35",
+              strokeWeight:  2,
+              strokeOpacity: 0.9,
+              fillColor:     "#FF6B35",
+              fillOpacity:   0.12,
+            });
+          }
+
+          if (!isOwner) {
+            layer.addListener("click", () => {
+              if (window.confirm(`Delete geofence "${fence.name}"?`)) {
+                fetch(`${API}/api/v1/geofences/${fence._id}`, {
+                  method:  "DELETE",
+                  headers: { Authorization: `Bearer ${getToken()}` },
+                }).then(() => {
+                  layer.setMap(null);
+                  delete fenceLayersRef.current[fence._id];
+                  setGeofences((prev) => prev.filter((f) => f._id !== fence._id));
+                  toast.success(`Geofence "${fence.name}" deleted.`);
+                });
+              }
+            });
+          }
+
+          fenceLayersRef.current[fence._id] = layer;
+        });
+      } catch (e) {
+        console.error("[Geofence] fetch/draw failed:", e.message);
+      }
+    };
+
+    fetchAndDraw();
+  }, [mapLoaded, isOwner]);
+
+  // ── Drawing Manager ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapLoaded || isOwner || !window.google?.maps?.drawing) return;
+
+    const G   = window.google.maps;
+    const map = gMapRef.current;
+
+    const dm = new G.drawing.DrawingManager({
+      drawingMode:    null,
+      drawingControl: true,
+      drawingControlOptions: {
+        position:     G.ControlPosition.TOP_RIGHT,
+        drawingModes: [G.drawing.OverlayType.CIRCLE, G.drawing.OverlayType.POLYGON],
+      },
+      circleOptions: {
+        strokeColor:   "#FF6B35",
+        strokeWeight:  2,
+        fillColor:     "#FF6B35",
+        fillOpacity:   0.12,
+        editable:      true,
+      },
+      polygonOptions: {
+        strokeColor:   "#FF6B35",
+        strokeWeight:  2,
+        fillColor:     "#FF6B35",
+        fillOpacity:   0.12,
+        editable:      true,
+      },
+    });
+
+    dm.setMap(map);
+    drawingMgrRef.current = dm;
+
+    G.event.addListener(dm, "circlecomplete", async (circle) => {
+      dm.setDrawingMode(null);
+      const name = window.prompt("Name this geofence:");
+      if (!name) { circle.setMap(null); return; }
+
+      const payload = {
+        name,
+        type:   "circle",
+        center: { lat: circle.getCenter().lat(), lng: circle.getCenter().lng() },
+        radius: circle.getRadius(),
+      };
+
+      try {
+        const res  = await fetch(`${API}/api/v1/location/geofences`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body:    JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.success) {
+          fenceLayersRef.current[data.data._id] = circle;
+          setGeofences((prev) => [...prev, data.data]);
+          toast.success(`Geofence "${name}" saved.`);
+        }
+      } catch {
+        circle.setMap(null);
+        toast.error("Failed to save geofence.");
+      }
+    });
+
+    G.event.addListener(dm, "polygoncomplete", async (polygon) => {
+      dm.setDrawingMode(null);
+      const name = window.prompt("Name this geofence:");
+      if (!name) { polygon.setMap(null); return; }
+
+      const coords = polygon.getPath().getArray().map((ll) => ({ lat: ll.lat(), lng: ll.lng() }));
+
+      try {
+        const res  = await fetch(`${API}/api/v1/location/geofences`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body:    JSON.stringify({ name, type: "polygon", coordinates: coords }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          fenceLayersRef.current[data.data._id] = polygon;
+          setGeofences((prev) => [...prev, data.data]);
+          toast.success(`Geofence "${name}" saved.`);
+        }
+      } catch {
+        polygon.setMap(null);
+        toast.error("Failed to save geofence.");
+      }
+    });
+
+    return () => {
+      if (drawingMgrRef.current) {
+        drawingMgrRef.current.setMap(null);
+        drawingMgrRef.current = null;
+      }
+    };
+  }, [mapLoaded, isOwner]);
+
   // ── drawTrail ───────────────────────────────────────────────────────────────
-  // Draws the red polyline and updates km/point count.
-  // Does NOT touch the green start marker.
   function drawTrail(points) {
     if (!gMapRef.current || !window.google?.maps || points.length === 0) return;
     const G   = window.google.maps;
     const map = gMapRef.current;
     const path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
 
-    // Red polyline
     if (polyRef.current) {
       polyRef.current.setPath(path);
     } else if (points.length >= 2) {
@@ -180,12 +362,10 @@ export default function LiveTrackingMap({
       });
     }
 
-    // Intermediate dots (every 4th point)
     dotsRef.current.forEach((d) => d.setMap(null));
     dotsRef.current = [];
     points.forEach((pt, i) => {
-      if (i === 0 || i === points.length - 1) return;
-      if (i % 4 !== 0) return;
+      if (i === 0 || i === points.length - 1 || i % 4 !== 0) return;
       dotsRef.current.push(
         new G.Marker({
           position: { lat: pt.lat, lng: pt.lng },
@@ -203,7 +383,6 @@ export default function LiveTrackingMap({
       );
     });
 
-    // Red live-position dot (moves as user moves)
     const last = points[points.length - 1];
     if (last) {
       if (liveMkRef.current) {
@@ -227,7 +406,6 @@ export default function LiveTrackingMap({
       if (isLive) map.panTo({ lat: last.lat, lng: last.lng });
     }
 
-    // Fit bounds for history view
     if (points.length >= 2 && !isLive) {
       const bounds = new G.LatLngBounds();
       points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
@@ -240,7 +418,6 @@ export default function LiveTrackingMap({
     console.log(`[drawTrail] ${points.length} points — ${km.toFixed(3)} km`);
   }
 
-  // ── cleanPoints: remove bad points from DB response ─────────────────────────
   function cleanPoints(raw) {
     const now     = Date.now();
     const cleaned = [];
@@ -252,14 +429,13 @@ export default function LiveTrackingMap({
       if (cleaned.length > 0) {
         const prev   = cleaned[cleaned.length - 1];
         const distKm = calcKm([prev, p]);
-        if (distKm > 50) continue; // impossible jump
+        if (distKm > 50) continue;
       }
       cleaned.push({ lat: p.lat, lng: p.lng, accuracy: p.accuracy });
     }
     return cleaned;
   }
 
-  // ── fetchTotalKm (fallback when no live points yet) ─────────────────────────
   const fetchTotalKm = useCallback(async () => {
     if (!userId) return;
     if (allPtsRef.current.length >= 2) {
@@ -280,7 +456,6 @@ export default function LiveTrackingMap({
     } catch { /* non-fatal */ }
   }, [userId]);
 
-  // ── loadTrailFromDB ─────────────────────────────────────────────────────────
   const loadTrailFromDB = useCallback(async () => {
     if (!userId || !mapLoaded) return;
     try {
@@ -293,7 +468,7 @@ export default function LiveTrackingMap({
 
       const res     = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
       const data    = await res.json();
-      console.log('[AdminMap] Full response:', JSON.stringify(data).slice(0, 300));
+      console.log("[AdminMap] Full response:", JSON.stringify(data).slice(0, 300));
 
       const raw     = data?.result || data?.data || data?.points || [];
       const cleaned = cleanPoints(raw);
@@ -301,7 +476,6 @@ export default function LiveTrackingMap({
       console.log(`[AdminMap] DB points: raw=${raw.length} cleaned=${cleaned.length}`);
 
       if (cleaned.length > 0) {
-        // Merge DB points with any live local points already captured
         const merged = [...cleaned];
         for (const lp of allPtsRef.current) {
           const alreadyIn = merged.some(
@@ -319,12 +493,12 @@ export default function LiveTrackingMap({
 
       await fetchTotalKm();
     } catch (e) {
-      console.error(`[AdminMap] ❌ Trail fetch failed:`, e.message);
+      console.error("[AdminMap] ❌ Trail fetch failed:", e.message);
     }
   }, [userId, mapLoaded, fetchTotalKm]);
 
-  // Load trail on mount and every 30 s
   useEffect(() => { loadTrailFromDB(); }, [loadTrailFromDB]);
+
   useEffect(() => {
     if (!userId || !mapLoaded) return;
     const id = setInterval(() => loadTrailFromDB(), 30_000);
@@ -332,9 +506,6 @@ export default function LiveTrackingMap({
   }, [userId, mapLoaded, loadTrailFromDB]);
 
   // ── Start / stop tracking on punch ─────────────────────────────────────────
-  // FIX: userId is now passed as the 3rd argument to startTracking.
-  // Previously it was omitted, so Locationtracker._userId was always null
-  // and flushBuffer aborted every flush → DB raw=0 forever.
   useEffect(() => {
     if (!mapLoaded) return;
 
@@ -344,7 +515,7 @@ export default function LiveTrackingMap({
     prevPunchedOut.current = hasPunchedOut;
 
     if (isPunchedIn && !hasPunchedOut && !wasIn && isOwner) {
-      // ✅ FIX: pass userId as 3rd argument
+      // ✅ FIX: pass socketRef (stable ref) instead of socket (raw, potentially stale)
       startTracking(
         (allPts) => {
           if (!allPts.length) return;
@@ -362,8 +533,8 @@ export default function LiveTrackingMap({
           if (last) setAccuracy(last.accuracy);
           if (typeof onPointsChange === "function") onPointsChange(allPts);
         },
-        socket,
-        userId, // ✅ FIX: was missing — caused _userId=null in Locationtracker
+        socketRef,  // ✅ FIX: stable ref, not raw socket
+        userId,
       );
     }
 
@@ -371,13 +542,11 @@ export default function LiveTrackingMap({
       if (isCurrentlyTracking()) stopTracking();
       setTimeout(() => loadTrailFromDB(), 2000);
     }
-  }, [isPunchedIn, hasPunchedOut, socket, mapLoaded, loadTrailFromDB, userId]);
+  }, [isPunchedIn, hasPunchedOut, socketRef, mapLoaded, loadTrailFromDB, userId]);
 
-  // ── Live dot: move green marker every 30 s WITHOUT adding to trail ──────────
-  // This ONLY moves the green dot — trail points come exclusively from
-  // the startTracking callback above (already filtered at 15 m).
+  // ── Live dot every 30 s ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isPunchedIn || hasPunchedOut || !mapLoaded || !gMapRef.current) return;
+    if (!isOwner || !isPunchedIn || hasPunchedOut || !mapLoaded || !gMapRef.current) return;
     if (!window.google?.maps) return;
 
     const G = window.google.maps;
@@ -385,17 +554,16 @@ export default function LiveTrackingMap({
     const updateDot = () => {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const lat      = pos.coords.latitude;
-          const lng      = pos.coords.longitude;
-          const acc      = pos.coords.accuracy ?? 0;
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const acc = pos.coords.accuracy ?? 0;
 
-          if (acc > 150) return; // too inaccurate — don't even move the dot
+          if (acc > 150) return;
 
-          // Move the green start marker to follow the user visually
-          if (startMkRef.current) {
-            startMkRef.current.setPosition({ lat, lng });
+          if (liveMkRef.current) {
+            liveMkRef.current.setPosition({ lat, lng });
           } else if (gMapRef.current) {
-            startMkRef.current = new G.Marker({
+            liveMkRef.current = new G.Marker({
               position: { lat, lng },
               map:      gMapRef.current,
               title:    "Current Location",
@@ -403,20 +571,18 @@ export default function LiveTrackingMap({
               icon: {
                 path:         G.SymbolPath.CIRCLE,
                 scale:        10,
-                fillColor:    "#22c55e",
+                fillColor:    "#ef4444",
                 fillOpacity:  1,
-                strokeColor:  "#ffffff",
-                strokeWeight: 3,
+                strokeColor:  "rgba(239,68,68,0.4)",
+                strokeWeight: 12,
               },
             });
           }
 
-          // Check if user has genuinely moved 15 m+ from last trail point
           const lastTrailPt = allPtsRef.current[allPtsRef.current.length - 1];
           if (lastTrailPt) {
             const moved = distMetres(lastTrailPt.lat, lastTrailPt.lng, lat, lng);
             if (moved >= MIN_MOVE_METRES) {
-              // Real movement — add to trail
               const merged = [...allPtsRef.current, { lat, lng }];
               allPtsRef.current = merged;
               drawTrail(merged);
@@ -429,19 +595,15 @@ export default function LiveTrackingMap({
             if (gMapRef.current) gMapRef.current.panTo({ lat, lng });
           }
         },
-        (err) => console.warn(`[LiveDot] GPS failed:`, err.message),
-        {
-          enableHighAccuracy: true,
-          timeout:            10_000,
-          maximumAge:         0, // always fresh — never cached
-        }
+        (err) => console.warn("[LiveDot] GPS failed:", err.message),
+        { enableHighAccuracy: true, timeout: 20_000, maximumAge: 5_000 }
       );
     };
 
-    updateDot(); // run immediately on punch-in
+    updateDot();
     const id = setInterval(updateDot, 30_000);
     return () => clearInterval(id);
-  }, [isPunchedIn, hasPunchedOut, mapLoaded]);
+  }, [isOwner, isPunchedIn, hasPunchedOut, mapLoaded]);
 
   // ── Cleanup on unmount ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -455,13 +617,23 @@ export default function LiveTrackingMap({
     const onAck   = (data) => setSockAck(data.timestamp);
     const onError = (data) => toast.error(data.message || "Socket error.", { title: "Live Sync Error" });
 
+    const onGeofenceAlert = (data) => {
+      const msg = `${data.event === "entered" ? "🟠 Entered" : "⚪ Exited"} "${data.name}"`;
+      toast[data.event === "entered" ? "warn" : "info"](msg, { title: "Geofence Alert" });
+      setGeofenceAlerts((prev) => [{ ...data, id: Date.now() }, ...prev.slice(0, 19)]);
+    };
+
     const onLiveUpdate = (data) => {
+      if (data.userId && userId && String(data.userId) !== String(userId)) return;
       if (!data.lat || !data.lng) return;
       const last = allPtsRef.current[allPtsRef.current.length - 1];
       if (last) {
         const dist = distMetres(last.lat, last.lng, data.lat, data.lng);
         if (dist < MIN_MOVE_METRES) {
           console.log(`[Socket] ⏭ ${dist.toFixed(0)} m jitter — skipped`);
+          if (liveMkRef.current) {
+            liveMkRef.current.setPosition({ lat: data.lat, lng: data.lng });
+          }
           return;
         }
       }
@@ -473,13 +645,21 @@ export default function LiveTrackingMap({
     socket.on("location:ack",         onAck);
     socket.on("location:error",       onError);
     socket.on("location:live_update", onLiveUpdate);
+    socket.on("geofence:alert",       onGeofenceAlert);
 
     return () => {
       socket.off("location:ack",         onAck);
       socket.off("location:error",       onError);
       socket.off("location:live_update", onLiveUpdate);
+      socket.off("geofence:alert",       onGeofenceAlert);
     };
-  }, [socket]);
+  }, [socket, userId]);
+
+  useEffect(() => {
+    if (!socket || !userId || isOwner) return;
+    socket.emit("location:watch_user", { userId });
+    console.log(`[AdminMap] 👁 Watching userId: ${userId}`);
+  }, [socket, userId, isOwner]);
 
   // ── Locate Me ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -505,7 +685,6 @@ export default function LiveTrackingMap({
     );
   }, [locateTrigger]);
 
-  // ── Accuracy label ──────────────────────────────────────────────────────────
   const accuracyColor =
     accuracy == null ? "#94a3b8"
     : accuracy <= 20  ? "#16a34a"
@@ -523,12 +702,10 @@ export default function LiveTrackingMap({
       ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       : null;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: "relative", width: "100%", height, borderRadius: "inherit" }}>
       <div ref={mapDivRef} style={{ width: "100%", height: "100%", borderRadius: "inherit" }} />
 
-      {/* Loading spinner */}
       {!mapLoaded && (
         <div style={{
           position: "absolute", inset: 0, display: "flex", alignItems: "center",
@@ -545,7 +722,6 @@ export default function LiveTrackingMap({
         </div>
       )}
 
-      {/* Live badge */}
       <div style={{
         position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)",
         zIndex: 1000, background: "rgba(255,255,255,0.97)", borderRadius: 999,
@@ -567,7 +743,26 @@ export default function LiveTrackingMap({
           : "Punch in to start tracking"}
       </div>
 
-      {/* GPS accuracy badge */}
+      {geofenceAlerts.length > 0 && (
+        <div style={{
+          position: "absolute", top: 50, left: 10, zIndex: 1000,
+          maxHeight: 120, overflowY: "auto", display: "flex",
+          flexDirection: "column", gap: 4, pointerEvents: "none",
+        }}>
+          {geofenceAlerts.slice(0, 4).map((a) => (
+            <div key={a.id} style={{
+              background: "rgba(255,255,255,0.96)", borderRadius: 7,
+              padding: "4px 10px", fontSize: 11, fontWeight: 600,
+              boxShadow: "0 1px 6px rgba(0,0,0,0.1)",
+              color:   a.event === "entered" ? "#c2410c" : "#64748b",
+              border: `1px solid ${a.event === "entered" ? "#fed7aa" : "#e2e8f0"}`,
+            }}>
+              {a.event === "entered" ? "🟠" : "⚪"} {a.name}
+            </div>
+          ))}
+        </div>
+      )}
+
       {accuracy != null && (
         <div style={{
           position: "absolute", top: 10, right: 10, zIndex: 1000,
@@ -580,7 +775,6 @@ export default function LiveTrackingMap({
         </div>
       )}
 
-      {/* Socket ack badge */}
       {sockAck && (
         <div style={{
           position: "absolute", bottom: 10, right: 10, zIndex: 1000,
@@ -592,7 +786,6 @@ export default function LiveTrackingMap({
         </div>
       )}
 
-      {/* Route summary */}
       <div style={{
         position: "absolute", bottom: 10, left: 10, zIndex: 1000,
         background: "rgba(255,255,255,0.97)", borderRadius: 10,

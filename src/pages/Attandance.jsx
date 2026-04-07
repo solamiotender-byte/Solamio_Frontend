@@ -37,10 +37,12 @@ import {
   startTracking,
   stopTracking,
   isCurrentlyTracking,
+  simulateTrackingMovement,
 } from "../utils/Locationtracker";
+import { useSocket } from "../utils/Usesocket.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const API       = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
+const API       = import.meta.env.VITE_API_URL || "http://localhost:9001";
 const PRIMARY   = "#4569ea";
 const SECONDARY = "#1a237e";
 const SUCCESS   = "#22c55e";
@@ -649,6 +651,7 @@ export default function Attendance() {
   const isAdminView             = !!paramUserId;
 
   const { user, getUserRole } = useAuth();
+  const { socketRef } = useSocket();
   const {
     attendances, loading, error, success, pagination, summary,
     fetchAttendances, punchIn, punchOut, deleteAttendance, clearMessages,
@@ -814,13 +817,29 @@ export default function Attendance() {
 
   // ── Auto-resume GPS tracking if page reloads while punched in ────────────
   useEffect(() => {
-    if (hasPunchedIn && !hasPunchedOut && !isAdminView && !isCurrentlyTracking()) {
-      startTracking(null, null);
+    if (hasPunchedIn && !hasPunchedOut && !isAdminView && user?._id && !isCurrentlyTracking()) {
+      startTracking(null, socketRef, user._id);
     }
+    if (hasPunchedOut && isCurrentlyTracking()) {
+      stopTracking();
+    }
+  }, [hasPunchedIn, hasPunchedOut, isAdminView, socketRef, user?._id]);
+
+  useEffect(() => {
     return () => {
       if (isCurrentlyTracking()) stopTracking();
     };
-  }, [hasPunchedIn, hasPunchedOut, isAdminView]);
+  }, []);
+
+  useEffect(() => {
+    if (isAdminView) return undefined;
+    window.__simulateLiveTrack = simulateTrackingMovement;
+    return () => {
+      if (window.__simulateLiveTrack === simulateTrackingMovement) {
+        delete window.__simulateLiveTrack;
+      }
+    };
+  }, [isAdminView]);
   // ─────────────────────────────────────────────────────────────────────────
 
   const openPunchModal = useCallback((mode) => {
@@ -876,7 +895,7 @@ export default function Attendance() {
     // ✅ Start tracking ONCE, no duplicate
     if (!isCurrentlyTracking()) {
       console.log("[Attendance] 🟢 Starting GPS tracking after punch-in");
-      startTracking(null, null);
+      startTracking(null, socketRef, user._id);
     }
   }
 
@@ -887,10 +906,6 @@ export default function Attendance() {
       stopTracking();
     }
   }
- if (isCurrentlyTracking()) {
-    console.log(`[Attendance] 🔴 Stopping GPS tracking after punch-out`);
-    stopTracking();
-  }
       } else {
         showSnack(result?.error || `Punch ${mode} failed`, "error");
       }
@@ -899,7 +914,7 @@ export default function Attendance() {
     } finally {
       setPunchLoading(false);
     }
-  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, fetchCalendarMonth, currentMonth, timer, showSnack, user]);
+  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, fetchCalendarMonth, currentMonth, timer, showSnack, user, socketRef]);
 
   const handleCloseConfirm = useCallback(() => {
     if (!punchLoading) { setPunchState({ stage: null, mode: "in" }); geo.reset(); }
