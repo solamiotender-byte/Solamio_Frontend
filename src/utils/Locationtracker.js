@@ -1,9 +1,10 @@
 // utils/Locationtracker.js
-// All errors now show as toasts instead of silent console.warn
 
 import { toast } from "../components/useToast.jsx";
 
-const API = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
+const API = import.meta.env.VITE_API_URL || "http://localhost:9001";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function distanceMetres(lat1, lng1, lat2, lng2) {
   const R    = 6_371_000;
@@ -46,66 +47,93 @@ async function reverseGeocode(lat, lng) {
   return { name: `Stop at ${lat.toFixed(4)}°, ${lng.toFixed(4)}°`, address: "" };
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const DWELL_RADIUS_M = 50;
-const DWELL_TIME_MS  = 10 * 60 * 1000;
-const COOLDOWN_MS    = 30 * 60 * 1000;
+const DWELL_TIME_MS  = 10 * 60 * 1000;  // 10 minutes
+const COOLDOWN_MS    = 30 * 60 * 1000;  // 30 minutes
+
+// GPS jitter on phones is typically ±5–15 m indoors.
+// Require 15 m of confirmed movement before accepting a new trail point.
+// FIX: Previously this was 5 m, which caused fake red lines while sitting still.
+const MIN_MOVE_METRES = 15;
+
+// ─── Module-level state ───────────────────────────────────────────────────────
 
 let dwellAnchor      = null;
 let recentVisitSpots = [];
-let watchId          = null;
-let buffer           = [];
-let allPoints        = [];
-let flushTimer       = null;
-let forcePollTimer = null;
+let watchId          = null;   // watchPosition handle — NOT an interval
+let buffer           = [];     // points waiting to be flushed to DB
+let allPoints        = [];     // all accepted trail points this session
+let flushTimer       = null;   // setInterval handle for DB flush
 let isTracking       = false;
 let onPointCallback  = null;
 let socketRef        = null;
+let _userId          = null;   // FIX: must be passed in so flushBuffer can send it
 
-let _shownPoorGpsToast  = false;
-let _shownOfflineToast  = false;
-let _flushFailCount     = 0;
+let _shownPoorGpsToast = false;
+let _shownOfflineToast = false;
+let _flushFailCount    = 0;
 
 const getToken = () =>
   localStorage.getItem("token")      ||
   localStorage.getItem("authToken")  ||
   localStorage.getItem("accessToken") || "";
 
-// ✅ Safe emit helper — always checks socketRef is non-null and connected
 function safeEmit(event, data) {
-  if (socketRef && socketRef.connected) {
-    socketRef.emit(event, data);
-  }
+  if (socketRef?.connected) socketRef.emit(event, data);
 }
 
-export function startTracking(onPoint = null, socket = null) {
-  if (isTracking) return;
+// ─── startTracking ────────────────────────────────────────────────────────────
+/**
+ * @param {Function} onPoint   - callback(allPoints[]) fired on every accepted GPS point
+ * @param {Socket}   socket    - socket.io instance (from useSocket)
+ * @param {string}   userId    - user._id from your auth context / Attendance.jsx
+ *
+ * FIX: userId is now a required 3rd param. Without it, flushBuffer sends points
+ * to the server with no owner — the server silently discards them → raw=0 in logs.
+ *
+ * FIX: Removed the forcePollTimer (setInterval → getCurrentPosition every 30s).
+ * That was duplicating points already captured by watchPosition and causing the
+ * same coordinates to appear in logs repeatedly. watchPosition with maximumAge:0
+ * handles mobile stalls correctly on its own.
+ */
+export function startTracking(onPoint = null, socket = null, userId = null) {
+  if (isTracking) {
+    console.warn("[Tracker] Already tracking — ignoring duplicate startTracking call.");
+    return;
+  }
 
   if (!navigator.geolocation) {
     toast.error("GPS not supported on this device.", { title: "Tracker Error" });
     return;
   }
-console.log("🟢 TRACKING STARTED — will save to DB every 15s");
 
-  isTracking          = true;
-  buffer              = [];
-  allPoints           = [];
-  onPointCallback     = onPoint;
-  socketRef           = socket;
-  dwellAnchor         = null;
-  recentVisitSpots    = [];
-  _shownPoorGpsToast  = false;
-  _shownOfflineToast  = false;
-  _flushFailCount     = 0;
+  // FIX: warn immediately if userId is missing so the bug is obvious in the console
+  if (!userId) {
+    console.error("[Tracker] ❌ startTracking called WITHOUT userId! Points will NOT save to DB.");
+  }
 
-  // ✅ Fixed: capture socket in a local variable at call time so the async
-  // callback cannot read a nulled-out socketRef after stopTracking() fires
-  // before getCurrentPosition resolves.
+  console.log("🟢 TRACKING STARTED — userId:", userId, "| 15 m jitter filter | DB flush every 30 s");
+
+  isTracking         = true;
+  buffer             = [];
+  allPoints          = [];
+  onPointCallback    = onPoint;
+  socketRef          = socket;
+  dwellAnchor        = null;
+  recentVisitSpots   = [];
+  _shownPoorGpsToast = false;
+  _shownOfflineToast = false;
+  _flushFailCount    = 0;
+  _userId            = userId;  // FIX: store for use in flushBuffer
+
+  // Emit location:start with the initial position
   if (socketRef?.connected) {
     const capturedSocket = socketRef;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        // ✅ Guard: component/tracker may have stopped by the time this fires
-        if (!capturedSocket || !capturedSocket.connected) return;
+        if (!capturedSocket?.connected) return;
         capturedSocket.emit("location:start", {
           lat:      pos.coords.latitude,
           lng:      pos.coords.longitude,
@@ -117,6 +145,11 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
     );
   }
 
+  // ── watchPosition ──────────────────────────────────────────────────────────
+  // FIX: watchPosition with maximumAge:0 is the ONLY GPS source.
+  // The old forcePollTimer (getCurrentPosition every 30s) has been removed
+  // because it caused the same coordinates to appear repeatedly in logs and
+  // double-counted points in the DB.
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
       const pt = {
@@ -127,44 +160,37 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
         time:     new Date(pos.timestamp).toISOString(),
       };
 
-      console.log(`[GPS] 📍 New point — lat:${pt.lat.toFixed(5)} lng:${pt.lng.toFixed(5)} accuracy:±${Math.round(pt.accuracy)}m speed:${pt.speed?.toFixed(1)}m/s`);
+      // Skip poor-accuracy readings first
+      if (pt.accuracy > 150) {
+        console.log(`[GPS] ⏭ Skipped — accuracy ±${Math.round(pt.accuracy)} m too poor`);
+        return;
+      }
 
       const last = allPoints[allPoints.length - 1];
 
+      // FIX: require 15 m of real movement (was 5 m — too sensitive, caused jitter lines)
       if (last) {
-  const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
- if (dist < 30){
- console.log(`[GPS] ⏭ Skipped (moved only ${dist.toFixed(2)}m)`);
-      return;
- }
- if (dist < 0.1) {  // much tighter — accepts nearly any GPS wobble
-  console.log(`[GPS] ⏭ Skipped (moved only ${dist.toFixed(2)}m)`);
-  return;
-}
+        const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
+        if (dist < MIN_MOVE_METRES) {
+          console.log(`[GPS] ⏭ Jitter ${dist.toFixed(1)} m < ${MIN_MOVE_METRES} m — skipped`);
+          return;
+        }
+      }
 
- 
-}
-
-
-      if (pt.accuracy > 200 && !_shownPoorGpsToast) {
-        toast.warn(`GPS accuracy is poor (±${Math.round(pt.accuracy)}m). Move to open sky for better tracking.`, {
+      // Warn about weak signal (but don't skip — accuracy already checked above)
+      if (pt.accuracy > 100 && !_shownPoorGpsToast) {
+        toast.warn(`GPS accuracy is poor (±${Math.round(pt.accuracy)} m). Move to open sky.`, {
           title: "Weak GPS Signal",
         });
         _shownPoorGpsToast = true;
         setTimeout(() => { _shownPoorGpsToast = false; }, 5 * 60 * 1000);
       }
 
-    if (pt.accuracy > 300) {
-  console.log(`[GPS] ⏭ Skipped — accuracy ±${Math.round(pt.accuracy)}m too poor`);
-  return;
-}
-
-
-
+      // Skip impossible GPS jumps (teleportation > 10 km instantly)
       if (last) {
         const jumpKm = distanceMetres(last.lat, last.lng, pt.lat, pt.lng) / 1000;
         if (jumpKm > 10) {
-          console.warn(`[GPS] ❌ Jump detected: ${jumpKm.toFixed(1)}km — skipped`);
+          console.warn(`[GPS] ❌ Jump ${jumpKm.toFixed(1)} km — skipped`);
           toast.warn(`GPS jumped ${jumpKm.toFixed(1)} km — point skipped.`, { title: "GPS Jump Detected" });
           return;
         }
@@ -172,11 +198,13 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
 
       buffer.push(pt);
       allPoints.push(pt);
-  console.log(`[GPS] ✅ Accepted — buffer:${buffer.length} total:${allPoints.length}`);
 
-      // flushBuffer();
+      const moveDist = last
+        ? distanceMetres(last.lat, last.lng, pt.lat, pt.lng).toFixed(0) + " m"
+        : "first point";
+      console.log(`[GPS] ✅ Real movement ${moveDist} — buffer:${buffer.length} total:${allPoints.length}`);
 
-      // ✅ Use safeEmit instead of socketRef.emit directly
+      // Emit live position via socket
       if (socketRef?.connected) {
         safeEmit("location:update", {
           lat:      pt.lat,
@@ -185,14 +213,13 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
           accuracy: pt.accuracy,
           time:     pt.time,
         });
-     } else if (!_shownOfflineToast) {
-  toast.warn("Socket offline — location not syncing.",  {
-          title: "Live Sync Paused",
-        });
+      } else if (!_shownOfflineToast) {
+        toast.warn("Socket offline — location not syncing live.", { title: "Live Sync Paused" });
         _shownOfflineToast = true;
         setTimeout(() => { _shownOfflineToast = false; }, 5 * 60 * 1000);
       }
 
+      // Notify the map component
       if (typeof onPointCallback === "function") {
         onPointCallback([...allPoints]);
       }
@@ -205,47 +232,114 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
         2: "GPS signal unavailable. Check if location is enabled on your device.",
         3: "GPS timed out. Signal too weak — try moving to an open area.",
       };
-      const msg = msgs[err.code] || `GPS error: ${err.message}`;
-      toast.error(msg, { title: "Location Error" });
+      toast.error(msgs[err.code] || `GPS error: ${err.message}`, { title: "Location Error" });
       console.warn("[Tracker] GPS error:", err.message);
     },
     {
       enableHighAccuracy: true,
-      maximumAge:         5_000,
-      timeout:            15_000,
+      maximumAge:         0,       // FIX: always fresh — never use cached position
+      timeout:            20_000,
     }
   );
-// ✅ Force-poll GPS every 5 seconds so we always see a location fetch in console
 
+  // ── DB flush every 30 s ────────────────────────────────────────────────────
+  flushTimer = setInterval(() => flushBuffer(), 30_000);
 
-forcePollTimer = setInterval(() => {
-  const pts  = getTrackPoints();           // ✅ always fresh
-  const last = pts[pts.length - 1];
+  window.addEventListener("requestDwellInfo", handleDwellInfoRequest);
+  toast.success("Location tracking started.", { title: "Tracking Active" });
+  console.log("[Tracker] ▶ Started — watchId:", watchId, "| userId:", _userId);
+}
 
-  if (!last) {
-    console.log(`[GPS POLL] ⏳ No points yet — waiting for watchPosition...`);
+// ─── stopTracking ─────────────────────────────────────────────────────────────
+
+export function stopTracking() {
+  if (!isTracking) return;
+
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  if (flushTimer !== null) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+
+  window.removeEventListener("requestDwellInfo", handleDwellInfoRequest);
+  safeEmit("location:stop");
+  socketRef = null;
+
+  // Flush any remaining points before clearing state
+  flushBuffer();
+
+  isTracking       = false;
+  onPointCallback  = null;
+  dwellAnchor      = null;
+  recentVisitSpots = [];
+  _userId          = null;
+
+  toast.info("Location tracking stopped.", { title: "Tracking Ended" });
+  console.log("[Tracker] ■ Stopped");
+}
+
+// ─── Public helpers ───────────────────────────────────────────────────────────
+
+export function getTrackPoints()      { return [...allPoints]; }
+export function clearTrackPoints()    { allPoints = []; buffer = []; }
+export function isCurrentlyTracking() { return isTracking; }
+
+// ─── flushBuffer ──────────────────────────────────────────────────────────────
+/**
+ * Sends buffered GPS points to the backend in one bulk POST.
+ *
+ * FIX: userId is now included in every request body.
+ * Previously _userId was null (never passed from LiveTrackingMap),
+ * so the server received points with no owner and stored nothing → raw=0.
+ */
+async function flushBuffer() {
+  if (!buffer.length) {
+    console.log("[Flush] 🔄 Skipped — buffer empty");
     return;
   }
 
-  const ageMs  = Date.now() - new Date(last.time).getTime();
-  const ageSec = Math.round(ageMs / 1000);
+  const token  = getToken();
+  const points = [...buffer];
+  buffer = []; // optimistically clear
 
-  console.log(`[GPS POLL] 📍 5s check — lat:${last.lat.toFixed(5)} lng:${last.lng.toFixed(5)} accuracy:±${Math.round(last.accuracy)}m | last updated ${ageSec}s ago | buffer:${buffer.length} total:${pts.length}`);
-
-  if (ageMs > 60_000) {
-    console.warn(`[GPS POLL] ⚠️ Location stale — ${ageSec}s since last GPS fix. Check signal/permissions.`);
+  if (!_userId) {
+    console.error("[Flush] ❌ No userId — aborting flush! Points will be lost.");
+    buffer = [...points, ...buffer]; // re-queue so they aren't lost
+    return;
   }
 
-}, 5000);
+  console.log(`[Flush] 📤 Sending ${points.length} point(s) — userId:`, _userId);
 
+  try {
+    const res = await fetch(`${API}/api/v1/location/track/bulk`, {
+      method:  "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ points, userId: _userId }),
+    });
 
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  
- flushTimer = setInterval(() => flushBuffer(), 15_000);
-  window.addEventListener("requestDwellInfo", handleDwellInfoRequest);
-  toast.success("Location tracking started.", { title: "Tracking Active" });
-  console.log("[Tracker] ▶ Started");
+    _flushFailCount = 0;
+    console.log(`[Flush] ✅ Saved ${points.length} point(s) for userId:`, _userId);
+  } catch (err) {
+    buffer = [...points, ...buffer]; // re-queue failed points
+    _flushFailCount++;
+    console.error(`[Flush] ❌ Failed (attempt ${_flushFailCount}):`, err.message);
+    if (_flushFailCount === 3) {
+      toast.error("Location data not reaching server. Check your connection.", {
+        title: "Sync Failed",
+      });
+    }
+  }
 }
+
+// ─── Auto-visit (dwell detection) ────────────────────────────────────────────
 
 function handleDwellInfoRequest() {
   if (!dwellAnchor) return;
@@ -290,10 +384,10 @@ async function createAutoVisit(lat, lng, dwellMins = 10) {
     fd.append("address",       geo.address);
     fd.append("isLeadCreated", "no");
     fd.append("remarks",       `Auto-detected stop · stayed ${dwellMins} min · https://maps.google.com/?q=${lat},${lng}`);
-   const res = await fetch(`${API}/api/v1/visit`, {
-      method: "POST",
+    const res = await fetch(`${API}/api/v1/visit`, {
+      method:  "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: fd,
+      body:    fd,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
@@ -312,63 +406,5 @@ async function createAutoVisit(lat, lng, dwellMins = 10) {
   } catch (err) {
     toast.error(`Could not save visit at "${geo.name}". Will retry next stop.`, { title: "Visit Save Failed" });
     console.warn("[AutoVisit] Failed:", err.message);
-  }
-}
-
-export function stopTracking() {
-  if (!isTracking) return;
-  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
-  if (flushTimer !== null) { clearInterval(flushTimer); flushTimer = null; }
-  window.removeEventListener("requestDwellInfo", handleDwellInfoRequest);
-  // ✅ Use safeEmit before nulling socketRef
-  safeEmit("location:stop");
-  socketRef = null;
-  flushBuffer();
-  isTracking       = false;
-  onPointCallback  = null;
-  dwellAnchor      = null;
-  recentVisitSpots = [];
-  toast.info("Location tracking stopped.", { title: "Tracking Ended" });
-  console.log("[Tracker] ■ Stopped");
-  
-}
-
-export function getTrackPoints()      { return [...allPoints]; }
-export function clearTrackPoints()    { allPoints = []; buffer = []; }
-export function isCurrentlyTracking() { return isTracking; }
-
-async function flushBuffer() {
-    if (!buffer.length) {
-    console.log(`[Flush] 🔄 Skipped — buffer empty`);
-    return;
-  }
-
-  const token  = getToken();
-  const points = [...buffer];
-  buffer = [];
-
-    console.log(`[Flush] 📤 Sending ${points.length} point(s) to server...`);
-
-
-  try {
-    const res = await fetch(`${API}/api/v1/location/track/bulk`, {
-      method:  "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ points }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    _flushFailCount = 0;
-    console.log(`[Tracker] ✅ Saved ${points.length} point(s)`);
-  } catch (err) {
-    buffer = [...points, ...buffer]; // re-queue
-    _flushFailCount++;
-    if (_flushFailCount === 3) {
-      toast.error("Location data not reaching server. Check your connection.", {
-        title: "Sync Failed",
-      });
-    }
   }
 }

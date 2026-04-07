@@ -32,7 +32,7 @@ L.Icon.Default.mergeOptions({
 });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const BASE_URL  = 'https://solar-backend-4bsb.onrender.com/api/v1';
+const BASE_URL  = 'http://localhost:9001/api/v1';
 const PRIMARY   = '#4569ea';
 const SECONDARY = '#1a237e';
 const SUCCESS   = '#4caf50';
@@ -45,7 +45,7 @@ const getToken = () =>
   localStorage.getItem('accessToken') || '';
 
 // ─── Haversine distance (km) — defined at module level, reused anywhere ───────
-const GKEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||'AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0';
+const GKEY = 'AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0';
 
 async function getRoadDistanceKm(lat1, lng1, lat2, lng2) {
   try {

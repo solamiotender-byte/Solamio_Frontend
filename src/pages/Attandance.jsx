@@ -40,7 +40,7 @@ import {
 } from "../utils/Locationtracker";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const API       = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
+const API       = import.meta.env.VITE_API_URL || "http://localhost:9001";
 const PRIMARY   = "#4569ea";
 const SECONDARY = "#1a237e";
 const SUCCESS   = "#22c55e";
@@ -856,36 +856,37 @@ export default function Attendance() {
         address:   geo.address,
       });
 
-      if (result?.success) {
-        showSnack(`Punch ${mode} successful!`);
-        setPunchState({ stage: null, mode: "in" });
-        await loadData();
-        // Also refresh calendar for current month after punch
-        await fetchCalendarMonth(currentMonth);
+     if (result?.success) {
+  showSnack(`Punch ${mode} successful!`);
+  setPunchState({ stage: null, mode: "in" });
+  await loadData();
+  await fetchCalendarMonth(currentMonth);
 
-        if (mode === "in") {
-          timer.start(new Date());
-          const token = localStorage.getItem("token");
-          await saveBattery(user._id, token);
-           if (!isCurrentlyTracking()) {
-    console.log(`[Attendance] 🟢 Starting GPS tracking after punch-in`);
-    startTracking(null, null);
+  if (mode === "in") {
+    timer.start(new Date());
+    const token = localStorage.getItem("token");
+    await saveBattery(user._id, token);
+
+    if ("getBattery" in navigator) {
+      const battery = await navigator.getBattery();
+      battery.addEventListener("levelchange",    () => saveBattery(user._id, token));
+      battery.addEventListener("chargingchange", () => saveBattery(user._id, token));
+    }
+
+    // ✅ Start tracking ONCE, no duplicate
+    if (!isCurrentlyTracking()) {
+      console.log("[Attendance] 🟢 Starting GPS tracking after punch-in");
+      startTracking(null, null);
+    }
   }
-          if ("getBattery" in navigator) {
-            const battery = await navigator.getBattery();
-            battery.addEventListener("levelchange",    () => saveBattery(user._id, token));
-            battery.addEventListener("chargingchange", () => saveBattery(user._id, token));
-          }
-          // ✅ Start GPS tracking the moment employee punches in
-          if (!isCurrentlyTracking()) {
-            startTracking(null, null);
-          }
-        }
 
-        if (mode === "out") {
-          // ✅ Stop GPS tracking when employee punches out
-          if (isCurrentlyTracking()) stopTracking();
-        }
+  if (mode === "out") {
+    // ✅ Stop tracking ONLY on punch-out
+    if (isCurrentlyTracking()) {
+      console.log("[Attendance] 🔴 Stopping GPS tracking after punch-out");
+      stopTracking();
+    }
+  }
  if (isCurrentlyTracking()) {
     console.log(`[Attendance] 🔴 Stopping GPS tracking after punch-out`);
     stopTracking();

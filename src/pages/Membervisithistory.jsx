@@ -20,7 +20,7 @@ import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 const BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
-  : "https://solar-backend-4bsb.onrender.com/api/v1";
+  : "http://localhost:9001/api/v1";
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";
@@ -444,7 +444,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
   const userId      = paramUserId || propUserId || null;
   const isAdminView = !!paramUserId;
 
-  const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
+const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     || (() => {
       try {
         const u = JSON.parse(localStorage.getItem("user") || localStorage.getItem("userData") || "null");
@@ -715,7 +715,9 @@ export default function MemberVisitHistory({ userId: propUserId }) {
               <LiveTrackingMap
                 isPunchedIn={isPunchedIn}
                 hasPunchedOut={hasPunchedOut}
-                userId={targetUserId}
+                // userId={targetUserId}
+                   userId={targetUserId}        // ✅ must match socket.user.id on backend
+
                 isOwner={!isAdminView}
                 height="100%"
                 locateTrigger={locateTrigger}
