@@ -42,7 +42,7 @@ import {
 import { useSocket } from "../utils/Usesocket.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const API       = import.meta.env.VITE_API_URL || "http://localhost:9001";
+const API       = import.meta.env.VITE_API_URL || "https://solar-backend-4bsb.onrender.com";
 const PRIMARY   = "#4569ea";
 const SECONDARY = "#1a237e";
 const SUCCESS   = "#22c55e";
