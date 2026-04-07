@@ -709,6 +709,8 @@ export default function MemberVisitHistory({ userId: propUserId }) {
                   {locating ? <CircularProgress size={18} sx={{ color: "#fff" }} /> : <GpsFixed sx={{ fontSize: 18, color: PRIMARY }} />}
                 </Box>
               </Tooltip>
+          
+
 
               <LiveTrackingMap
                 isPunchedIn={isPunchedIn}

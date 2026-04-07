@@ -867,6 +867,10 @@ export default function Attendance() {
           timer.start(new Date());
           const token = localStorage.getItem("token");
           await saveBattery(user._id, token);
+           if (!isCurrentlyTracking()) {
+    console.log(`[Attendance] 🟢 Starting GPS tracking after punch-in`);
+    startTracking(null, null);
+  }
           if ("getBattery" in navigator) {
             const battery = await navigator.getBattery();
             battery.addEventListener("levelchange",    () => saveBattery(user._id, token));
@@ -882,7 +886,10 @@ export default function Attendance() {
           // ✅ Stop GPS tracking when employee punches out
           if (isCurrentlyTracking()) stopTracking();
         }
-
+ if (isCurrentlyTracking()) {
+    console.log(`[Attendance] 🔴 Stopping GPS tracking after punch-out`);
+    stopTracking();
+  }
       } else {
         showSnack(result?.error || `Punch ${mode} failed`, "error");
       }

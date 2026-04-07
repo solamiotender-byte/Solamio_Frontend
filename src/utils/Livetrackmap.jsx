@@ -95,6 +95,12 @@ export default function LiveTrackingMap({
     const map = gMapRef.current;
 
     const path = points.map(p => ({ lat: p.lat, lng: p.lng }));
+    const lats = points.map(p => p.lat);
+const lngs = points.map(p => p.lng);
+const latSpread = (Math.max(...lats) - Math.min(...lats)) * 111000; // metres
+const lngSpread = (Math.max(...lngs) - Math.min(...lngs)) * 111000;
+console.log(`[drawTrail] Spread: ${latSpread.toFixed(1)}m lat × ${lngSpread.toFixed(1)}m lng`);
+
     if (polyRef.current) {
       polyRef.current.setPath(path);
     } else if (points.length >= 2) {
@@ -163,40 +169,54 @@ export default function LiveTrackingMap({
       if (isLive) map.panTo({ lat: last.lat, lng: last.lng });
     }
 
-    if (points.length >= 2 && !polyRef.current?.fitted) {
-      const bounds = new G.LatLngBounds();
-      points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
+   if (points.length >= 2) {
+  const bounds = new G.LatLngBounds();
+  points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
       map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
       if (polyRef.current) polyRef.current.fitted = true;
-    } else if (points.length === 1) {
-      map.setCenter({ lat: points[0].lat, lng: points[0].lng });
-      map.setZoom(16);
+       if (!isLive) {
+    map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+    console.log(`[drawTrail] ✅ Map fitted to trail bounds`);
+  }
+} else if (points.length === 1) {
+  map.setCenter({ lat: points[0].lat, lng: points[0].lng });
+  map.setZoom(16);
+
     }
 
     setPointCount(points.length);
   }
 
-  function cleanPoints(raw) {
-    const now     = Date.now();
-    const cleaned = [];
-    for (const p of raw) {
-      if (!p.lat || !p.lng) continue;
-      if (p.accuracy && p.accuracy > 1000) continue;
-      const ptTime = p.recordedAt || p.time || p.createdAt;
-      if (ptTime && now - new Date(ptTime).getTime() > TTL_MS) continue;
-      if (cleaned.length > 0) {
-        const prev   = cleaned[cleaned.length - 1];
-        const R      = 6371;
-        const dLat   = ((p.lat - prev.lat) * Math.PI) / 180;
-        const dLng   = ((p.lng - prev.lng) * Math.PI) / 180;
-        const a      = Math.sin(dLat/2)**2 + Math.cos(prev.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-        const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        if (distKm > 10) continue;
-      }
-      cleaned.push({ lat: p.lat, lng: p.lng });
+ function cleanPoints(raw) {
+  const now     = Date.now();
+  const cleaned = [];
+  for (const p of raw) {
+    if (!p.lat || !p.lng) continue;
+
+    // ✅ Skip poor accuracy points
+    if (p.accuracy && p.accuracy > 500) continue;
+
+
+    const ptTime = p.recordedAt || p.time || p.createdAt;
+    if (ptTime && now - new Date(ptTime).getTime() > 24 * 60 * 60 * 1000) continue;
+
+    if (cleaned.length > 0) {
+      const prev   = cleaned[cleaned.length - 1];
+      const R      = 6371;
+      const dLat   = ((p.lat - prev.lat) * Math.PI) / 180;
+      const dLng   = ((p.lng - prev.lng) * Math.PI) / 180;
+      const a      = Math.sin(dLat/2)**2 + Math.cos(prev.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+      const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+      // ✅ Skip points less than 30m from last kept point
+      if (distKm * 1000 < 30) continue;
+
+      if (distKm > 50) continue;
     }
-    return cleaned;
+    cleaned.push({ lat: p.lat, lng: p.lng, accuracy: p.accuracy });
   }
+  return cleaned;
+}
 
   // ── fetchTotalKm ───────────────────────────────────────────────────────────
   const fetchTotalKm = useCallback(async () => {
@@ -215,54 +235,50 @@ export default function LiveTrackingMap({
 
   // ── loadTrailFromDB ────────────────────────────────────────────────────────
   const loadTrailFromDB = useCallback(async () => {
-    if (!userId || !mapLoaded) return;
-    try {
-      const now   = new Date();
-      const since = new Date(now.getTime() - TTL_MS);
-      const url   = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
+  if (!userId || !mapLoaded) return;
+  try {
+    const now   = new Date();
+    const since = new Date(now);
+    since.setHours(0, 0, 0, 0); // ✅ start of today, not 10h ago
 
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+    const url = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
+    console.log(`[AdminMap] 📡 Fetching trail for userId:${userId}`);
+    console.log(`[AdminMap] URL: ${url}`);
+    
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+    console.log(`[AdminMap] Response status: ${res.status}`);
+    
+    const data    = await res.json();
+    console.log(`[AdminMap] Raw response:`, data);
+    
+    const raw     = data?.result || data?.data || data?.points || [];
+    console.log(`[AdminMap] Raw points count: ${raw.length}`);
+    
+    const cleaned = cleanPoints(raw);
+    console.log(`[AdminMap] Cleaned points count: ${cleaned.length}`);
 
-      if (res.status === 401) {
-        toast.error("Session expired. Please log in again.", { title: "Authentication Error" });
-        return;
-      }
-      if (res.status === 403) {
-        toast.error("You don't have permission to view this user's trail.", { title: "Access Denied" });
-        return;
-      }
-      if (!res.ok) {
-        toast.error(`Failed to load trail (HTTP ${res.status}).`, { title: "Trail Load Failed" });
-        return;
-      }
-
-      const data    = await res.json();
-      const raw     = data?.result || data?.data || data?.points || [];
-      const cleaned = cleanPoints(raw);
-
-      if (cleaned.length > 0) {
-        allPtsRef.current = cleaned;
-        drawTrail(cleaned);
-      } else if (punchInLocation?.lat && punchInLocation?.lng) {
-        const fallback = [{ lat: punchInLocation.lat, lng: punchInLocation.lng }];
-        allPtsRef.current = fallback;
-        drawTrail(fallback);
-      }
-
-      await fetchTotalKm();
-    } catch (e) {
-      toast.warn("Could not load location trail. Check your connection.", { title: "Trail Unavailable" });
-      console.warn("[LiveTrackingMap] Trail load failed:", e.message);
+    if (cleaned.length > 0) {
+      allPtsRef.current = cleaned;
+      drawTrail(cleaned);
+      console.log(`[AdminMap] ✅ Trail drawn with ${cleaned.length} points`);
+    } else {
+      console.warn(`[AdminMap] ⚠️ No points to draw — raw:${raw.length} cleaned:${cleaned.length}`);
     }
-  }, [userId, mapLoaded, punchInLocation, fetchTotalKm]);
+
+    await fetchTotalKm();
+  } catch (e) {
+    console.error(`[AdminMap] ❌ Trail fetch failed:`, e.message);
+  }
+}, [userId, mapLoaded, punchInLocation, fetchTotalKm]);
+
 
   useEffect(() => { loadTrailFromDB(); }, [loadTrailFromDB]);
 
-  useEffect(() => {
-    if (!userId || !mapLoaded) return;
-    const interval = setInterval(() => loadTrailFromDB(), 10_000);
-    return () => clearInterval(interval);
-  }, [loadTrailFromDB, userId, mapLoaded]);
+useEffect(() => {
+  if (!userId || !mapLoaded) return;
+  const interval = setInterval(() => loadTrailFromDB(), 15_000);
+  return () => clearInterval(interval);
+}, [userId, mapLoaded]); // ✅ remove loadTrailFromDB from dep
 
   // ── Start / stop on punch ──────────────────────────────────────────────────
   useEffect(() => {
@@ -376,7 +392,7 @@ export default function LiveTrackingMap({
         };
         toast.error(msgs[err.code] || err.message, { title: "Locate Me Failed" });
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+{ enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 }
     );
   }, [locateTrigger]);
 

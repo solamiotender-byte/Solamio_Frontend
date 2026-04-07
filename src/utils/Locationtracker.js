@@ -56,6 +56,7 @@ let watchId          = null;
 let buffer           = [];
 let allPoints        = [];
 let flushTimer       = null;
+let forcePollTimer = null;
 let isTracking       = false;
 let onPointCallback  = null;
 let socketRef        = null;
@@ -126,12 +127,24 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
         time:     new Date(pos.timestamp).toISOString(),
       };
 
+      console.log(`[GPS] 📍 New point — lat:${pt.lat.toFixed(5)} lng:${pt.lng.toFixed(5)} accuracy:±${Math.round(pt.accuracy)}m speed:${pt.speed?.toFixed(1)}m/s`);
+
       const last = allPoints[allPoints.length - 1];
 
       if (last) {
   const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
- if (dist < 0.5) return; // allow more points
+ if (dist < 30){
+ console.log(`[GPS] ⏭ Skipped (moved only ${dist.toFixed(2)}m)`);
+      return;
+ }
+ if (dist < 0.1) {  // much tighter — accepts nearly any GPS wobble
+  console.log(`[GPS] ⏭ Skipped (moved only ${dist.toFixed(2)}m)`);
+  return;
 }
+
+ 
+}
+
 
       if (pt.accuracy > 200 && !_shownPoorGpsToast) {
         toast.warn(`GPS accuracy is poor (±${Math.round(pt.accuracy)}m). Move to open sky for better tracking.`, {
@@ -141,14 +154,17 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
         setTimeout(() => { _shownPoorGpsToast = false; }, 5 * 60 * 1000);
       }
 
-      if (pt.accuracy > 1000) {
-        console.warn(`[Tracker] Skipping very poor accuracy: ±${pt.accuracy}m`);
-        return;
-      }
+    if (pt.accuracy > 300) {
+  console.log(`[GPS] ⏭ Skipped — accuracy ±${Math.round(pt.accuracy)}m too poor`);
+  return;
+}
+
+
 
       if (last) {
         const jumpKm = distanceMetres(last.lat, last.lng, pt.lat, pt.lng) / 1000;
         if (jumpKm > 10) {
+          console.warn(`[GPS] ❌ Jump detected: ${jumpKm.toFixed(1)}km — skipped`);
           toast.warn(`GPS jumped ${jumpKm.toFixed(1)} km — point skipped.`, { title: "GPS Jump Detected" });
           return;
         }
@@ -156,6 +172,7 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
 
       buffer.push(pt);
       allPoints.push(pt);
+  console.log(`[GPS] ✅ Accepted — buffer:${buffer.length} total:${allPoints.length}`);
 
       // flushBuffer();
 
@@ -198,9 +215,33 @@ console.log("🟢 TRACKING STARTED — will save to DB every 15s");
       timeout:            15_000,
     }
   );
+// ✅ Force-poll GPS every 5 seconds so we always see a location fetch in console
+
+
+forcePollTimer = setInterval(() => {
+  const pts  = getTrackPoints();           // ✅ always fresh
+  const last = pts[pts.length - 1];
+
+  if (!last) {
+    console.log(`[GPS POLL] ⏳ No points yet — waiting for watchPosition...`);
+    return;
+  }
+
+  const ageMs  = Date.now() - new Date(last.time).getTime();
+  const ageSec = Math.round(ageMs / 1000);
+
+  console.log(`[GPS POLL] 📍 5s check — lat:${last.lat.toFixed(5)} lng:${last.lng.toFixed(5)} accuracy:±${Math.round(last.accuracy)}m | last updated ${ageSec}s ago | buffer:${buffer.length} total:${pts.length}`);
+
+  if (ageMs > 60_000) {
+    console.warn(`[GPS POLL] ⚠️ Location stale — ${ageSec}s since last GPS fix. Check signal/permissions.`);
+  }
+
+}, 5000);
+
+
 
   
-
+ flushTimer = setInterval(() => flushBuffer(), 15_000);
   window.addEventListener("requestDwellInfo", handleDwellInfoRequest);
   toast.success("Location tracking started.", { title: "Tracking Active" });
   console.log("[Tracker] ▶ Started");
@@ -297,37 +338,33 @@ export function clearTrackPoints()    { allPoints = []; buffer = []; }
 export function isCurrentlyTracking() { return isTracking; }
 
 async function flushBuffer() {
-  if (!buffer.length) return;
+    if (!buffer.length) {
+    console.log(`[Flush] 🔄 Skipped — buffer empty`);
+    return;
+  }
 
   const token  = getToken();
   const points = [...buffer];
   buffer = [];
-   console.log("🟡 SAVING", points.length, "points to DB, token exists:", !!token);
+
+    console.log(`[Flush] 📤 Sending ${points.length} point(s) to server...`);
+
 
   try {
-    // const res = await fetch(`${API}/api/v1/location/track/bulk`, {
-    //   method:  "POST",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    //   },
-      
-    //   body: JSON.stringify({ points }),
-    // });
-    // console.log("🟢 SAVED — status:", res.status)
-
-    // const responseData = await res.json();
-    // console.log("🟢 FLUSH RESPONSE:", JSON.stringify(responseData)); // add this
-    
-    // if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    // _flushFailCount = 0;
-    // console.log(`[Tracker] ✅ Saved ${points.length} point(s)`);
-    
+    const res = await fetch(`${API}/api/v1/location/track/bulk`, {
+      method:  "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ points }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _flushFailCount = 0;
+    console.log(`[Tracker] ✅ Saved ${points.length} point(s)`);
   } catch (err) {
-    buffer = [...points, ...buffer];
+    buffer = [...points, ...buffer]; // re-queue
     _flushFailCount++;
-    console.warn("[Tracker] ⚠ Save failed, re-queued:", err.message);
-
     if (_flushFailCount === 3) {
       toast.error("Location data not reaching server. Check your connection.", {
         title: "Sync Failed",
