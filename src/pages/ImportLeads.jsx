@@ -83,7 +83,7 @@ const SECONDARY = "#1a237e";
 const SUCCESS = "#22c55e";
 const WARNING = "#f59e0b";
 const API_BASE = (
-  process.env.REACT_APP_API_URL || "https://solar-backend-4bsb.onrender.com/api/v1"
+  process.env.REACT_APP_API_URL || "https://demo-solar-backend-1.onrender.com/api/v1"
 ).replace(/\/+$/, "");
 
 // Role-based access control
