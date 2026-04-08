@@ -29,6 +29,12 @@
         })
       : null;
 
+  const resolveAddress = (address) => {
+    if (!address) return null;
+    if (typeof address === "string") return address;
+    return address.full || address.short || [address.road, address.city].filter(Boolean).join(", ") || null;
+  };
+
   const avatarColors = ["#4569ea","#7c3aed","#0ea5e9","#f59e0b","#10b981","#f43f5e","#8b5cf6","#06b6d4"];
   const getAvatarColor = (name = "") => avatarColors[name.charCodeAt(0) % avatarColors.length];
 
@@ -163,6 +169,13 @@
         </Stack>
       </Stack>
 
+      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
+        <Typography fontSize="0.68rem" color="#94a3b8" fontWeight={700} textTransform="uppercase" letterSpacing="0.04em">
+          Battery
+        </Typography>
+        <BatteryChip percentage={member.batteryPercentage} isCharging={member.isCharging} />
+      </Stack>
+
       {/* Footer */}
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Box sx={{ px: 1.25, py: 0.4, borderRadius: "0.375rem", bgcolor: alpha(PRIMARY, 0.06), display: "inline-flex", alignItems: "center", gap: 0.5 }}>
@@ -251,21 +264,44 @@ try {
   console.error("Visits fetch failed:", e.message);
 }
 
-        // Step 4: Map attendance by userId
+        // Step 4: Fetch latest battery logs for the team
+        let batteryMap = {};
+        try {
+          const userIds = rawUsers.map((u) => String(u._id || u.id)).filter(Boolean);
+          if (userIds.length > 0) {
+            const battRes = await axios.get(`${API}/api/v1/battery/all-latest`, {
+              headers, params: { userIds: userIds.join(",") },
+            });
+            const batteryLogs = battRes.data?.data || battRes.data?.result || [];
+            batteryLogs.forEach((b) => {
+              const key = String(b.userId || b.user?._id || b.user || b._id || "");
+              if (key) {
+                batteryMap[key] = {
+                  percentage: typeof b.percentage === "number" ? b.percentage : null,
+                  isCharging: b.isCharging ?? false,
+                };
+              }
+            });
+          }
+        } catch (e) {
+          console.error("Battery fetch failed:", e.message);
+        }
+
+        // Step 5: Map attendance by userId
         const attMap = {};
         attendances.forEach((a) => {
           const uid = String(a.user?._id || a.user?.id || a.user || "");
           if (uid) attMap[uid] = a;
         });
 
-        // Step 5: Count visits by userId
+        // Step 6: Count visits by userId
         const visitCountMap = {};
         visits.forEach((v) => {
           const uid = String(v.user?._id || v.user?.id || v.user || "");
           if (uid) visitCountMap[uid] = (visitCountMap[uid] || 0) + 1;
         });
 
-        // Step 6: Merge into member objects
+        // Step 7: Merge into member objects
         const merged = rawUsers.map((u) => {
           const uid = String(u._id || u.id || "");
           const att = attMap[uid] || null;
@@ -285,7 +321,7 @@ try {
             avatarColor: getAvatarColor(u.firstName || ""),
             status,
             // Punch-in address = user's location when they started
-            location: att?.punchIn?.address || att?.punchOut?.address || null,
+            location: resolveAddress(att?.punchIn?.address) || resolveAddress(att?.punchOut?.address) || null,
             // Punch-in coordinates for map
             punchInLat: att?.punchIn?.location?.lat || null,
             punchInLng: att?.punchIn?.location?.lng || null,
@@ -295,6 +331,8 @@ try {
             punchInTime,
             punchOutTime,
             visits: visitCountMap[uid] || 0,
+            batteryPercentage: batteryMap[uid]?.percentage ?? null,
+            isCharging: batteryMap[uid]?.isCharging ?? false,
           };
         });
 
