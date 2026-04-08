@@ -20,7 +20,7 @@ import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 const BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
-  : "https://demo-solar-backend-1.onrender.com/api/v1";
+  : "https://demo-admin-solar-backend.onrender.com/api/v1";
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";

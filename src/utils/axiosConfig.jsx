@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance
 const axiosInstance = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'https://demo-solar-backend-1.onrender.com/api/v1',
+  baseURL: process.env.REACT_APP_API_URL || 'https://demo-admin-solar-backend.onrender.com/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
