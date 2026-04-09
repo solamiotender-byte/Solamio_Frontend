@@ -22,10 +22,20 @@ import {
 import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
-const API  = "https://demo-admin-solar-backend.onrender.com";
+const API  = "https://solar-backend-1-4szm.onrender.com";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
-const MIN_MOVE_METRES = 5;
+const MIN_MOVE_METRES = 20;
+
+function getEffectiveMoveThreshold(currentAccuracy = 0, previousAccuracy = 0) {
+  return Math.min(
+    45,
+    Math.max(
+      MIN_MOVE_METRES,
+      ((Number(currentAccuracy) || 0) + (Number(previousAccuracy) || 0)) * 0.35
+    )
+  );
+}
 
 const getToken = () =>
   localStorage.getItem("token")       ||
@@ -47,6 +57,19 @@ function calcKm(points) {
       Math.cos((curr.lat * Math.PI) / 180) *
       Math.sin(dLng / 2) ** 2;
     total += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+  return Math.round(total * 1000) / 1000;
+}
+
+function calcFilteredKm(points) {
+  if (!points || points.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const distM = distMetres(prev.lat, prev.lng, curr.lat, curr.lng);
+    const requiredMove = getEffectiveMoveThreshold(curr.accuracy, prev.accuracy);
+    if (distM >= requiredMove) total += distM / 1000;
   }
   return Math.round(total * 1000) / 1000;
 }
@@ -79,6 +102,9 @@ export default function LiveTrackingMap({
   onPointsChange,
   isOwner         = true,
   punchInLocation = null,
+  selectedDate    = null, 
+  visits          = [],
+  
 }) {
   const mapDivRef  = useRef(null);
   const gMapRef    = useRef(null);
@@ -87,7 +113,9 @@ export default function LiveTrackingMap({
   const liveMkRef  = useRef(null);
   const dotsRef    = useRef([]);
   const allPtsRef  = useRef([]);
-
+const visitMkRef = useRef([]);
+  const userAdjustedViewportRef = useRef(false);
+  const suppressViewportEventsRef = useRef(false);
   const [mapLoaded,  setMapLoaded]  = useState(false);
   const [accuracy,   setAccuracy]   = useState(null);
   const [sockAck,    setSockAck]    = useState(null);
@@ -106,6 +134,16 @@ export default function LiveTrackingMap({
   const drawingMgrRef  = useRef(null);
 
   const isLive = isPunchedIn && !hasPunchedOut;
+  const isTodaySelected =
+    !selectedDate || selectedDate === new Date().toISOString().split("T")[0];
+
+  const withProgrammaticViewport = useCallback((fn) => {
+    suppressViewportEventsRef.current = true;
+    fn();
+    window.setTimeout(() => {
+      suppressViewportEventsRef.current = false;
+    }, 0);
+  }, []);
 
   // ── Init Google Map ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -126,6 +164,13 @@ export default function LiveTrackingMap({
             stylers:     [{ visibility: "off" }],
           }],
         });
+
+        gMapRef.current.addListener("dragstart", () => {
+          if (!suppressViewportEventsRef.current) userAdjustedViewportRef.current = true;
+        });
+        gMapRef.current.addListener("zoom_changed", () => {
+          if (!suppressViewportEventsRef.current) userAdjustedViewportRef.current = true;
+        });
         setMapLoaded(true);
       })
       .catch((err) => toast.error(err.message, { title: "Map Failed to Load" }));
@@ -140,8 +185,12 @@ export default function LiveTrackingMap({
     const map = gMapRef.current;
     const pos = { lat: punchInLocation.lat, lng: punchInLocation.lng };
 
-    map.setCenter(pos);
-    map.setZoom(15);
+    if (!userAdjustedViewportRef.current) {
+      withProgrammaticViewport(() => {
+        map.setCenter(pos);
+        map.setZoom(15);
+      });
+    }
 
     if (!startMkRef.current) {
       startMkRef.current = new G.Marker({
@@ -165,75 +214,107 @@ export default function LiveTrackingMap({
     console.log(`[PunchIn] ✅ Marker placed at ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`);
   }, [mapLoaded, punchInLocation]);
 
-  // ── Fetch & draw geofences ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!mapLoaded) return;
+ // ── Draw visit markers ──────────────────────────────────────────────────────
+useEffect(() => {
+  if (!mapLoaded || !window.google?.maps) return;
+  const G   = window.google.maps;
+  const map = gMapRef.current;
 
-    const fetchAndDraw = async () => {
-      try {
-        const res  = await fetch(`${API}/api/v1/geofences`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        const data = await res.json();
-        const list = data?.data || data?.result || [];
-        setGeofences(list);
+  // Clear old visit markers
+  visitMkRef.current.forEach((m) => m.setMap(null));
+  visitMkRef.current = [];
 
-        const G   = window.google.maps;
-        const map = gMapRef.current;
+  visits.forEach((v, i) => {
+    if ((v.locationName || "").trim().toLowerCase() === "start location") return;
 
-        Object.values(fenceLayersRef.current).forEach((l) => l.setMap(null));
-        fenceLayersRef.current = {};
+    const lat = Number(
+      v.coordinates?.lat ??
+      v.location?.lat ??
+      v.location?.latitude ??
+      v.lat ??
+      v.latitude
+    );
+    const lng = Number(
+      v.coordinates?.lng ??
+      v.coordinates?.longitude ??
+      v.location?.lng ??
+      v.location?.longitude ??
+      v.lng ??
+      v.longitude
+    );
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-        list.forEach((fence) => {
-          let layer;
-          if (fence.type === "circle") {
-            layer = new G.Circle({
-              map,
-              center:        fence.center,
-              radius:        fence.radius,
-              strokeColor:   "#FF6B35",
-              strokeWeight:  2,
-              strokeOpacity: 0.9,
-              fillColor:     "#FF6B35",
-              fillOpacity:   0.12,
-            });
-          } else {
-            layer = new G.Polygon({
-              map,
-              paths:         fence.coordinates.map((c) => ({ lat: c.lat, lng: c.lng })),
-              strokeColor:   "#FF6B35",
-              strokeWeight:  2,
-              strokeOpacity: 0.9,
-              fillColor:     "#FF6B35",
-              fillOpacity:   0.12,
-            });
-          }
+    const isInProgress = v.status === "InProgress";
+    const fillColor    = isInProgress ? "#22c55e" : "#4569ea";
+    const label        = v.locationName || `Stop ${i + 1}`;
 
-          if (!isOwner) {
-            layer.addListener("click", () => {
-              if (window.confirm(`Delete geofence "${fence.name}"?`)) {
-                fetch(`${API}/api/v1/geofences/${fence._id}`, {
-                  method:  "DELETE",
-                  headers: { Authorization: `Bearer ${getToken()}` },
-                }).then(() => {
-                  layer.setMap(null);
-                  delete fenceLayersRef.current[fence._id];
-                  setGeofences((prev) => prev.filter((f) => f._id !== fence._id));
-                  toast.success(`Geofence "${fence.name}" deleted.`);
-                });
-              }
-            });
-          }
+    // Custom SVG store pin
+    const svgPin = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+        <defs>
+          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.25)"/>
+          </filter>
+        </defs>
+        <!-- Pin body -->
+        <path d="M18 0C10.268 0 4 6.268 4 14c0 9.941 14 28 14 28S32 23.941 32 14C32 6.268 25.732 0 18 0z"
+              fill="${fillColor}" filter="url(#shadow)"/>
+        <!-- White circle inside -->
+        <circle cx="18" cy="14" r="8" fill="white"/>
+        <!-- Store icon (simplified) -->
+        <rect x="12" y="11" width="12" height="8" rx="1" fill="${fillColor}"/>
+        <rect x="14" y="14" width="3" height="5" fill="white"/>
+        <rect x="19" y="14" width="3" height="5" fill="white"/>
+        <path d="M11 11 L18 8 L25 11" stroke="${fillColor}" stroke-width="1.5" fill="none"/>
+      </svg>`;
 
-          fenceLayersRef.current[fence._id] = layer;
-        });
-      } catch (e) {
-        console.error("[Geofence] fetch/draw failed:", e.message);
-      }
-    };
+    const marker = new G.Marker({
+      position: { lat, lng },
+      map,
+      title:  label,
+      zIndex: 30,
+      icon: {
+        url:    `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgPin)}`,
+        size:         new G.Size(36, 44),
+        anchor:       new G.Point(18, 44),
+        scaledSize:   new G.Size(36, 44),
+      },
+      animation: G.Animation.DROP,
+    });
 
-    fetchAndDraw();
-  }, [mapLoaded, isOwner]);
+    // Info window on click
+    const infoWindow = new G.InfoWindow({
+      content: `
+        <div style="font-family:'Inter',sans-serif;padding:8px 10px;min-width:160px">
+          <div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:4px">
+            ${label}
+          </div>
+          ${v.address
+            ? `<div style="font-size:11px;color:#64748b;margin-bottom:4px">
+                📍 ${typeof v.address === "string" ? v.address : v.address?.full || v.address?.short || ""}
+               </div>`
+            : ""}
+          ${v.checkInTime
+            ? `<div style="font-size:11px;color:#94a3b8">
+                🕐 ${new Date(v.checkInTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+               </div>`
+            : ""}
+          <div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;
+                background:${isInProgress ? "rgba(34,197,94,0.1)" : "rgba(69,105,234,0.1)"};
+                color:${fillColor}">
+            ${isInProgress ? "In Progress" : v.status || "Visited"}
+          </div>
+        </div>`,
+    });
+
+    marker.addListener("click", () => {
+      infoWindow.open(map, marker);
+    });
+
+    visitMkRef.current.push(marker);
+  });
+}, [mapLoaded, visits]);
+  
 
   // ── Drawing Manager ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -332,7 +413,8 @@ export default function LiveTrackingMap({
   }, [mapLoaded, isOwner]);
 
   // ── drawTrail ───────────────────────────────────────────────────────────────
-  function drawTrail(points) {
+  function drawTrail(points, options = {}) {
+    const { autoFit = false, autoPanLive = false } = options;
     if (!gMapRef.current || !window.google?.maps || points.length === 0) return;
     const G   = window.google.maps;
     const map = gMapRef.current;
@@ -403,34 +485,40 @@ export default function LiveTrackingMap({
           },
         });
       }
-      if (isLive) map.panTo({ lat: last.lat, lng: last.lng });
+      if (isLive && autoPanLive && !userAdjustedViewportRef.current) {
+        withProgrammaticViewport(() => {
+          map.panTo({ lat: last.lat, lng: last.lng });
+        });
+      }
     }
 
-    if (points.length >= 2 && !isLive) {
+    if (points.length >= 2 && !isLive && autoFit && !userAdjustedViewportRef.current) {
       const bounds = new G.LatLngBounds();
       points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
-      map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+      withProgrammaticViewport(() => {
+        map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+      });
     }
 
-    const km = calcKm(points);
+    const km = calcFilteredKm(points);
     setTotalKm(km);
     setPointCount(points.length);
     console.log(`[drawTrail] ${points.length} points — ${km.toFixed(3)} km`);
   }
 
   function cleanPoints(raw) {
-    const now     = Date.now();
     const cleaned = [];
     for (const p of raw) {
       if (!p.lat || !p.lng) continue;
-      if (p.accuracy && p.accuracy > 150) continue;
-      const ptTime = p.recordedAt || p.time || p.createdAt;
-      if (ptTime && now - new Date(ptTime).getTime() > 24 * 60 * 60 * 1000) continue;
-      if (cleaned.length > 0) {
-        const prev   = cleaned[cleaned.length - 1];
-        const distKm = calcKm([prev, p]);
-        if (distKm > 50) continue;
-      }
+        if (p.accuracy && p.accuracy > 80) continue;
+        if (cleaned.length > 0) {
+          const prev   = cleaned[cleaned.length - 1];
+          const distKm = calcKm([prev, p]);
+          const distM = distKm * 1000;
+          const requiredMove = getEffectiveMoveThreshold(p.accuracy, prev.accuracy);
+          if (distM < requiredMove) continue;
+          if (distKm > 50) continue;
+        }
       cleaned.push({ lat: p.lat, lng: p.lng, accuracy: p.accuracy });
     }
     return cleaned;
@@ -439,14 +527,18 @@ export default function LiveTrackingMap({
   const fetchTotalKm = useCallback(async () => {
     if (!userId) return;
     if (allPtsRef.current.length >= 2) {
-      setTotalKm(calcKm(allPtsRef.current));
+      setTotalKm(calcFilteredKm(allPtsRef.current));
       return;
     }
     try {
+       const dateParam = selectedDate && selectedDate.match(/^\d{4}-\d{2}-\d{2}$/)
+        ? selectedDate
+        : new Date().toISOString().split("T")[0];
       const res = await fetch(
-        `${API}/api/v1/location/distance?salesmanId=${userId}`,
+        `${API}/api/v1/location/distance?salesmanId=${userId}&date=${dateParam}`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
+
       if (!res.ok) return;
       const data = await res.json();
       const dbKm = data?.data?.totalKm ?? data?.result?.totalKm ?? data?.totalKm ?? 0;
@@ -454,16 +546,26 @@ export default function LiveTrackingMap({
         setTotalKm(Math.round(dbKm * 1000) / 1000);
       }
     } catch { /* non-fatal */ }
-  }, [userId]);
+  }, [userId, selectedDate]);
 
-  const loadTrailFromDB = useCallback(async () => {
+  const loadTrailFromDB = useCallback(async (options = {}) => {
+    const { autoFit = false } = options;
     if (!userId || !mapLoaded) return;
-    try {
-      const now   = new Date();
-      const since = new Date(now);
-      since.setHours(0, 0, 0, 0);
+     try {
+      // ✅ Use selectedDate if provided, otherwise fall back to today
+      let since, until;
+      if (selectedDate && selectedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const [yyyy, mm, dd] = selectedDate.split("-").map(Number);
+        since = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+        until = new Date(yyyy, mm - 1, dd, 23, 59, 59, 999);
+      } else {
+        const now = new Date();
+        since = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        until = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      }
 
-      const url = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${now.toISOString()}`;
+      const url = `${API}/api/v1/location/today?salesmanId=${userId}&startTime=${since.toISOString()}&endTime=${until.toISOString()}`;
+
       console.log(`[AdminMap] 📡 Fetching trail for userId:${userId}`);
 
       const res     = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
@@ -477,17 +579,19 @@ export default function LiveTrackingMap({
 
       if (cleaned.length > 0) {
         const merged = [...cleaned];
-        for (const lp of allPtsRef.current) {
-          const alreadyIn = merged.some(
-            (p) => Math.abs(p.lat - lp.lat) < 0.00001 && Math.abs(p.lng - lp.lng) < 0.00001
-          );
-          if (!alreadyIn) merged.push(lp);
+        if (isLive && isTodaySelected) {
+          for (const lp of allPtsRef.current) {
+            const alreadyIn = merged.some(
+              (p) => Math.abs(p.lat - lp.lat) < 0.00001 && Math.abs(p.lng - lp.lng) < 0.00001
+            );
+            if (!alreadyIn) merged.push(lp);
+          }
         }
         allPtsRef.current = merged;
-        drawTrail(merged);
+        drawTrail(merged, { autoFit, autoPanLive: false });
         console.log(`[AdminMap] ✅ Trail: ${merged.length} points — ${calcKm(merged).toFixed(3)} km`);
       } else {
-        if (allPtsRef.current.length > 0) drawTrail(allPtsRef.current);
+        if (allPtsRef.current.length > 0) drawTrail(allPtsRef.current, { autoFit, autoPanLive: false });
         console.warn(`[AdminMap] ⚠️ No DB points — raw:${raw.length}`);
       }
 
@@ -495,15 +599,26 @@ export default function LiveTrackingMap({
     } catch (e) {
       console.error("[AdminMap] ❌ Trail fetch failed:", e.message);
     }
-  }, [userId, mapLoaded, fetchTotalKm]);
-
-  useEffect(() => { loadTrailFromDB(); }, [loadTrailFromDB]);
+  }, [userId, mapLoaded, fetchTotalKm, selectedDate, isLive, isTodaySelected]);
 
   useEffect(() => {
-    if (!userId || !mapLoaded) return;
-    const id = setInterval(() => loadTrailFromDB(), 30_000);
+    // ✅ Clear old trail and re-fetch whenever selectedDate changes
+    if (polyRef.current) { polyRef.current.setMap(null); polyRef.current = null; }
+    dotsRef.current.forEach(d => d.setMap(null));
+    dotsRef.current = [];
+    if (liveMkRef.current) { liveMkRef.current.setMap(null); liveMkRef.current = null; }
+    allPtsRef.current = [];
+    userAdjustedViewportRef.current = false;
+    setTotalKm(0);
+    setPointCount(0);
+    loadTrailFromDB({ autoFit: true });
+  }, [loadTrailFromDB]);
+
+  useEffect(() => {
+    if (!userId || !mapLoaded || !isLive || !isTodaySelected) return;
+    const id = setInterval(() => loadTrailFromDB({ autoFit: false }), 30_000);
     return () => clearInterval(id);
-  }, [userId, mapLoaded, loadTrailFromDB]);
+  }, [userId, mapLoaded, loadTrailFromDB, isLive, isTodaySelected]);
 
   // ── Start / stop tracking on punch ─────────────────────────────────────────
   useEffect(() => {
@@ -526,12 +641,12 @@ export default function LiveTrackingMap({
               (p) => Math.abs(p.lat - np.lat) < 0.00001 && Math.abs(p.lng - np.lng) < 0.00001
             );
             if (!alreadyIn) merged.push(np);
-          }
-          allPtsRef.current = merged;
-          drawTrail(merged);
-          const last = allPts[allPts.length - 1];
-          if (last) setAccuracy(last.accuracy);
-          if (typeof onPointsChange === "function") onPointsChange(allPts);
+            }
+            allPtsRef.current = merged;
+            drawTrail(merged, { autoFit: false, autoPanLive: false });
+            const last = allPts[allPts.length - 1];
+            if (last) setAccuracy(last.accuracy);
+            if (typeof onPointsChange === "function") onPointsChange(allPts);
         },
         socketRef,  // ✅ FIX: stable ref, not raw socket
         userId,
@@ -540,7 +655,7 @@ export default function LiveTrackingMap({
 
     if (hasPunchedOut && !wasOut) {
       if (isCurrentlyTracking()) stopTracking();
-      setTimeout(() => loadTrailFromDB(), 2000);
+      setTimeout(() => loadTrailFromDB({ autoFit: false }), 2000);
     }
   }, [isPunchedIn, hasPunchedOut, socketRef, mapLoaded, loadTrailFromDB, userId]);
 
@@ -582,17 +697,26 @@ export default function LiveTrackingMap({
           const lastTrailPt = allPtsRef.current[allPtsRef.current.length - 1];
           if (lastTrailPt) {
             const moved = distMetres(lastTrailPt.lat, lastTrailPt.lng, lat, lng);
-            if (moved >= MIN_MOVE_METRES) {
+            const minMoveRequired = getEffectiveMoveThreshold(acc, lastTrailPt.accuracy);
+            if (moved >= minMoveRequired) {
               const merged = [...allPtsRef.current, { lat, lng }];
               allPtsRef.current = merged;
-              drawTrail(merged);
+              drawTrail(merged, { autoFit: false, autoPanLive: false });
               console.log(`[LiveDot] ✅ ${moved.toFixed(0)} m real movement — trail updated`);
             } else {
               console.log(`[LiveDot] ⏭ ${moved.toFixed(0)} m jitter — dot moved, trail unchanged`);
-              if (isLive && gMapRef.current) gMapRef.current.panTo({ lat, lng });
+              if (isLive && gMapRef.current && !userAdjustedViewportRef.current) {
+                withProgrammaticViewport(() => {
+                  gMapRef.current.panTo({ lat, lng });
+                });
+              }
             }
           } else {
-            if (gMapRef.current) gMapRef.current.panTo({ lat, lng });
+            if (gMapRef.current && !userAdjustedViewportRef.current) {
+              withProgrammaticViewport(() => {
+                gMapRef.current.panTo({ lat, lng });
+              });
+            }
           }
         },
         (err) => console.warn("[LiveDot] GPS failed:", err.message),
@@ -629,7 +753,8 @@ export default function LiveTrackingMap({
       const last = allPtsRef.current[allPtsRef.current.length - 1];
       if (last) {
         const dist = distMetres(last.lat, last.lng, data.lat, data.lng);
-        if (dist < MIN_MOVE_METRES) {
+        const minMoveRequired = getEffectiveMoveThreshold(data.accuracy, last.accuracy);
+        if (dist < minMoveRequired) {
           console.log(`[Socket] ⏭ ${dist.toFixed(0)} m jitter — skipped`);
           if (liveMkRef.current) {
             liveMkRef.current.setPosition({ lat: data.lat, lng: data.lng });
@@ -639,7 +764,7 @@ export default function LiveTrackingMap({
       }
       const merged = [...allPtsRef.current, { lat: data.lat, lng: data.lng }];
       allPtsRef.current = merged;
-      drawTrail(merged);
+      drawTrail(merged, { autoFit: false, autoPanLive: false });
     };
 
     socket.on("location:ack",         onAck);

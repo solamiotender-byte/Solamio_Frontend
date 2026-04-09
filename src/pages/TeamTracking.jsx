@@ -14,7 +14,7 @@
   import axios from "axios";
   import { useNavigate } from "react-router-dom";
 
-  const API = import.meta.env.VITE_API_URL || "https://demo-admin-solar-backend.onrender.com";
+  const API = import.meta.env.VITE_API_URL || "https://solar-backend-1-4szm.onrender.com";
   const PRIMARY = "#136dec";
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -603,6 +603,7 @@ try {
                       <TableCell>Status</TableCell>
                       <TableCell align="center">Punch-In Location</TableCell>
                       <TableCell align="center">Punch-In Time</TableCell>
+                      <TableCell align="center">Battery</TableCell>
                       <TableCell align="center">Visits Today</TableCell>
                       <TableCell align="right" sx={{ pr: 3 }}>Actions</TableCell>
                     </TableRow>
@@ -648,6 +649,12 @@ try {
                               </Box>
                             </Stack>
                           </TableCell>
+<TableCell align="center" sx={{ py: 2.25 }}>
+  <BatteryChip
+    percentage={member.batteryPercentage}
+    isCharging={member.isCharging}
+  />
+</TableCell>
 
                           {/* Status */}
                           <TableCell sx={{ py: 2.25 }}>

@@ -12,11 +12,11 @@
 //
 // 4. watchPosition maximumAge:0 — never serve a cached position.
 //
-// 5. MIN_MOVE_METRES = 5 to suppress GPS jitter while still tracking movement.
+// 5. MIN_MOVE_METRES = 20 with accuracy-aware gating to suppress stationary GPS drift.
 
 import { toast } from "../components/useToast.jsx";
 
-const API = import.meta.env.VITE_API_URL || "https://demo-admin-solar-backend.onrender.com";
+const API = import.meta.env.VITE_API_URL || "https://solar-backend-1-4szm.onrender.com";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,8 +67,19 @@ async function reverseGeocode(lat, lng) {
 const DWELL_RADIUS_M  = 50;
 const DWELL_TIME_MS   = 10 * 60 * 1000;  // 10 minutes
 const COOLDOWN_MS     = 30 * 60 * 1000;  // 30 minutes
-const MIN_MOVE_METRES = 5;                // suppress GPS jitter
+const MIN_MOVE_METRES = 20;               // ignore short GPS drift when user is stationary
+const MAX_REASONABLE_ACCURACY_METRES = 80;
 const TRACKING_POLL_MS = 10_000;          // backup GPS poll for browsers that throttle watchPosition
+
+function getEffectiveMoveThreshold(currentAccuracy = 0, lastAccuracy = 0) {
+  return Math.min(
+    45,
+    Math.max(
+      MIN_MOVE_METRES,
+      ((Number(currentAccuracy) || 0) + (Number(lastAccuracy) || 0)) * 0.35
+    )
+  );
+}
 
 // ─── Module-level state ───────────────────────────────────────────────────────
 let dwellAnchor      = null;
@@ -138,7 +149,7 @@ export function startTracking(onPoint = null, socket = null, userId = null) {
     );
   }
 
-  console.log("🟢 TRACKING STARTED — userId:", userId, "| 5 m jitter filter | DB flush every 30 s");
+  console.log("🟢 TRACKING STARTED — userId:", userId, "| 20 m jitter filter | DB flush every 30 s");
 
   isTracking         = true;
   buffer             = [];
@@ -178,7 +189,7 @@ export function startTracking(onPoint = null, socket = null, userId = null) {
       };
 
       // 1. Accuracy gate
-      if (pt.accuracy > 150) {
+      if (pt.accuracy > MAX_REASONABLE_ACCURACY_METRES) {
         console.log(`[GPS] ⏭ Skipped — accuracy ±${Math.round(pt.accuracy)} m too poor`);
         return;
       }
@@ -187,8 +198,9 @@ export function startTracking(onPoint = null, socket = null, userId = null) {
       const last = allPoints[allPoints.length - 1];
       if (last) {
         const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
-        if (dist < MIN_MOVE_METRES) {
-          console.log(`[GPS] ⏭ Jitter ${dist.toFixed(1)} m < ${MIN_MOVE_METRES} m — skipped`);
+        const minMoveRequired = getEffectiveMoveThreshold(pt.accuracy, last.accuracy);
+        if (dist < minMoveRequired) {
+          console.log(`[GPS] ⏭ Jitter ${dist.toFixed(1)} m < ${minMoveRequired.toFixed(1)} m — skipped`);
           return;
         }
 
@@ -202,7 +214,7 @@ export function startTracking(onPoint = null, socket = null, userId = null) {
       }
 
       // 4. Warn on weak (but still acceptable) signal
-      if (pt.accuracy > 100 && !_shownPoorGpsToast) {
+      if (pt.accuracy > 60 && !_shownPoorGpsToast) {
         toast.warn(`GPS accuracy is poor (±${Math.round(pt.accuracy)} m). Move to open sky.`, {
           title: "Weak GPS Signal",
         });
@@ -274,7 +286,7 @@ export function startTracking(onPoint = null, socket = null, userId = null) {
           time:     new Date(pos.timestamp || Date.now()).toISOString(),
         };
 
-        if (pt.accuracy > 150) {
+        if (pt.accuracy > MAX_REASONABLE_ACCURACY_METRES) {
           console.log(`[GPS Poll] Skipped - accuracy +/-${Math.round(pt.accuracy)} m too poor`);
           return;
         }
@@ -282,8 +294,9 @@ export function startTracking(onPoint = null, socket = null, userId = null) {
         const last = allPoints[allPoints.length - 1];
         if (last) {
           const dist = distanceMetres(last.lat, last.lng, pt.lat, pt.lng);
-          if (dist < MIN_MOVE_METRES) {
-            console.log(`[GPS Poll] Jitter ${dist.toFixed(1)} m < ${MIN_MOVE_METRES} m - skipped`);
+          const minMoveRequired = getEffectiveMoveThreshold(pt.accuracy, last.accuracy);
+          if (dist < minMoveRequired) {
+            console.log(`[GPS Poll] Jitter ${dist.toFixed(1)} m < ${minMoveRequired.toFixed(1)} m - skipped`);
             return;
           }
           if (dist / 1000 > 10) {

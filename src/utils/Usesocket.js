@@ -17,7 +17,7 @@ import { io } from "socket.io-client";
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
   import.meta.env.VITE_API_URL    ||
-  "https://demo-admin-solar-backend.onrender.com";
+  "https://solar-backend-1-4szm.onrender.com";
 
 // ── Module-level singletons ────────────────────────────────────────────────────
 let globalSocket  = null;

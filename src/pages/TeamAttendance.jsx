@@ -13,13 +13,14 @@ import {
 import {
   Search, Refresh, AccessTime, CheckCircle, Cancel, LocationOn, Person,
   BatteryChargingFull, BatteryAlert, Battery20, Battery50, Battery80,
+  CalendarToday,
 } from "@mui/icons-material";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import LiveTrackMap from "../utils/Livetrackmap";
 
-const API = import.meta.env.VITE_API_URL || "https://demo-admin-solar-backend.onrender.com";
+const API = import.meta.env.VITE_API_URL || "https://solar-backend-1-4szm.onrender.com";
 
 const avatarColors = [
   "#4569ea", "#7c3aed", "#0ea5e9", "#f59e0b",
@@ -39,6 +40,24 @@ const formatHours = (hours) => {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
   return `${h}h ${m}m`;
+};
+
+const getTodayDateInput = () => {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const formatSelectedDateLabel = (value) => {
+  if (!value) return "";
+  const [yyyy, mm, dd] = value.split("-").map(Number);
+  return new Date(yyyy, mm - 1, dd).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 };
 
 // ── Battery helpers ───────────────────────────────────────────────────────────
@@ -151,6 +170,190 @@ const StatusBadge = ({ member }) => {
         "& .MuiChip-icon": { color: "#dc2626" },
       }}
     />
+  );
+};
+
+const MemberTrailDialog = ({ member, open, onClose }) => {
+  const [selectedDate, setSelectedDate] = useState(getTodayDateInput());
+  const [mapState, setMapState] = useState({
+    loading: false,
+    isPunchedIn: false,
+    hasPunchedOut: false,
+    punchInLocation: null,
+    visits: [],
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedDate(getTodayDateInput());
+  }, [open, member.id]);
+
+  useEffect(() => {
+    if (!open || !member?.id || !selectedDate) return;
+
+    let cancelled = false;
+
+      const loadAttendanceForDate = async () => {
+      setMapState((prev) => ({ ...prev, loading: true }));
+      try {
+        const token = localStorage.getItem("token");
+        const headers = { Authorization: `Bearer ${token}` };
+        const [attendanceRes, visitsRes] = await Promise.all([
+          axios.get(`${API}/api/v1/attendance`, {
+            headers,
+            params: {
+              userId: member.id,
+              startDate: selectedDate,
+              endDate: selectedDate,
+              limit: 1,
+            },
+          }),
+          axios.get(`${API}/api/v1/visit`, {
+            headers,
+            params: {
+              userId: member.id,
+              startDate: selectedDate,
+              endDate: selectedDate,
+              page: 1,
+              limit: 200,
+            },
+          }),
+        ]);
+
+        if (cancelled) return;
+
+        const attendance = attendanceRes.data?.result?.attendances?.[0] || null;
+        const visits = visitsRes.data?.result?.visits || [];
+        setMapState({
+          loading: false,
+          isPunchedIn: !!attendance?.punchIn?.time,
+          hasPunchedOut: !!attendance?.punchOut?.time,
+          punchInLocation: attendance?.punchIn
+            ? {
+                ...attendance.punchIn.location,
+                address: attendance.punchIn.address,
+                time: attendance.punchIn.time,
+              }
+            : null,
+          visits,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Trail attendance fetch error:", error.message);
+        setMapState({
+          loading: false,
+          isPunchedIn: false,
+          hasPunchedOut: false,
+          punchInLocation: null,
+          visits: [],
+        });
+      }
+    };
+
+    loadAttendanceForDate();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, member.id, selectedDate]);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      PaperProps={{ sx: { borderRadius: "20px", overflow: "hidden", m: 2 } }}
+    >
+      <DialogContent sx={{ p: 0, bgcolor: "#f8fafc" }}>
+        <Box
+          sx={{
+            px: 3,
+            py: 2,
+            bgcolor: "#fff",
+            borderBottom: "1px solid #e2e8f0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2,
+            flexWrap: "wrap",
+          }}
+        >
+          <Box>
+            <Typography sx={{ fontWeight: 800, color: "#0f172a", fontSize: "1rem" }}>
+              {member.firstName} {member.lastName} Map Trail
+            </Typography>
+            <Typography sx={{ fontSize: "0.78rem", color: "#64748b", mt: 0.25 }}>
+              Stored GPS route for {formatSelectedDateLabel(selectedDate)}
+            </Typography>
+          </Box>
+
+          <TextField
+            type="date"
+            size="small"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            inputProps={{ max: getTodayDateInput() }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <CalendarToday sx={{ fontSize: "1rem", color: "#64748b" }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{
+              minWidth: { xs: "100%", sm: 210 },
+              "& .MuiOutlinedInput-root": {
+                borderRadius: "10px",
+                bgcolor: "#fff",
+              },
+            }}
+          />
+        </Box>
+
+        <Box sx={{ p: 2 }}>
+          {mapState.loading && (
+            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: 420 }}>
+              <CircularProgress sx={{ color: "#4569ea" }} />
+            </Box>
+          )}
+
+          {!mapState.loading && (
+            <>
+              {!mapState.isPunchedIn && (
+                <Box
+                  sx={{
+                    mb: 1.5,
+                    px: 1.5,
+                    py: 1,
+                    borderRadius: "10px",
+                    bgcolor: "#fff7ed",
+                    border: "1px solid #fdba74",
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: "#c2410c" }}>
+                    No punch-in found for {formatSelectedDateLabel(selectedDate)}.
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.74rem", color: "#9a3412", mt: 0.25 }}>
+                    If GPS points exist in the database for that date, the route line will still load on the map.
+                  </Typography>
+                </Box>
+              )}
+
+              <LiveTrackMap
+                isPunchedIn={mapState.isPunchedIn}
+                hasPunchedOut={mapState.hasPunchedOut}
+                userId={member.id}
+                isOwner={false}
+                height="520px"
+                punchInLocation={mapState.punchInLocation}
+                selectedDate={selectedDate}
+                visits={mapState.visits}
+              />
+            </>
+          )}
+        </Box>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -350,54 +553,36 @@ const MemberCard = ({ member }) => {
             Attendance
           </Button>
 
-          {/* Live Track button — only shown when member has punched in */}
-          {member.punchedIn && (
-            <Tooltip title={isActive ? "View live location" : "View today's trail"}>
-              <Button
-                variant="contained"
-                size="small"
-                onClick={() => setShowMap(true)}
-                startIcon={<LocationOn sx={{ fontSize: "1rem" }} />}
-                sx={{
-                  borderRadius: "10px", py: 1, fontSize: "0.78rem", fontWeight: 700,
-                  textTransform: "none", flexShrink: 0,
+      {/* Live Track button — only shown when member has punched in */}
+          <Tooltip title={isActive ? "View live location and older dates" : "View stored map trail by date"}>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => setShowMap(true)}
+              startIcon={<LocationOn sx={{ fontSize: "1rem" }} />}
+              sx={{
+                borderRadius: "10px", py: 1, fontSize: "0.78rem", fontWeight: 700,
+                textTransform: "none", flexShrink: 0,
+                background: isActive
+                  ? "linear-gradient(135deg, #22c55e, #16a34a)"
+                  : "linear-gradient(135deg, #3b82f6, #2563eb)",
+                boxShadow: isActive
+                  ? "0 3px 12px rgba(34,197,94,0.35)"
+                  : "0 3px 12px rgba(59,130,246,0.35)",
+                "&:hover": {
                   background: isActive
-                    ? "linear-gradient(135deg, #22c55e, #16a34a)"
-                    : "linear-gradient(135deg, #3b82f6, #2563eb)",
-                  boxShadow: isActive
-                    ? "0 3px 12px rgba(34,197,94,0.35)"
-                    : "0 3px 12px rgba(59,130,246,0.35)",
-                  "&:hover": {
-                    background: isActive
-                      ? "linear-gradient(135deg, #16a34a, #15803d)"
-                      : "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                  },
-                }}
-              >
-                {isActive ? "Live" : "Trail"}
-              </Button>
-            </Tooltip>
-          )}
+                    ? "linear-gradient(135deg, #16a34a, #15803d)"
+                    : "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                },
+              }}
+            >
+              {isActive ? "Live Map" : "Map Trail"}
+            </Button>
+          </Tooltip>
         </Box>
       </Box>
 
-      {/* LiveTrackMap dialog — read-only, fetches stored points from backend */}
-      <Dialog
-        open={showMap}
-        onClose={() => setShowMap(false)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{ sx: { borderRadius: "20px", overflow: "hidden", m: 2 } }}
-      >
-        <DialogContent sx={{ p: 0 }}>
-          <LiveTrackMap
-            memberId={member.id}
-            memberName={`${member.firstName} ${member.lastName}`}
-            memberRole={member.role}
-            onClose={() => setShowMap(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      <MemberTrailDialog member={member} open={showMap} onClose={() => setShowMap(false)} />
     </>
   );
 };

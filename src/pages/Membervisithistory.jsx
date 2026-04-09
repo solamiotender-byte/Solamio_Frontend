@@ -20,7 +20,7 @@ import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 const BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
-  : "https://demo-admin-solar-backend.onrender.com/api/v1";
+  : "https://solar-backend-1-4szm.onrender.com/api/v1";
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";
@@ -44,14 +44,68 @@ const apiFetch = async (path, params = {}, options = {}) => {
 const fmt = (d) => d ? new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
 
 const getDateRange = (r) => {
-  const now = new Date(), today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  if (r === "today")     return { startDate: today.toISOString(), endDate: now.toISOString() };
-  if (r === "yesterday") { const y = new Date(today.getTime() - 86400000); return { startDate: y.toISOString(), endDate: new Date(today.getTime() - 1).toISOString() }; }
-  if (r === "week")      { const w = new Date(today); w.setDate(today.getDate() - today.getDay()); return { startDate: w.toISOString(), endDate: now.toISOString() }; }
-  if (r === "month")     return { startDate: new Date(today.getFullYear(), today.getMonth(), 1).toISOString(), endDate: now.toISOString() };
+  const now = new Date();
+  
+  // ✅ Build local midnight using local date parts (avoids UTC shift)
+  const localMidnight = new Date(
+    now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0
+  );
+  const localEndOfDay = new Date(
+    now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999
+  );
+
+  if (r === "today") return {
+    startDate: localMidnight.toISOString(),
+    endDate:   localEndOfDay.toISOString(),   // ✅ end at 23:59 not "now"
+  };
+
+  if (r === "yesterday") {
+    const yStart = new Date(localMidnight); yStart.setDate(yStart.getDate() - 1);
+    const yEnd   = new Date(yStart); yEnd.setHours(23, 59, 59, 999);
+    return { startDate: yStart.toISOString(), endDate: yEnd.toISOString() };
+  }
+
+  if (r === "week") {
+    const w = new Date(localMidnight);
+    w.setDate(localMidnight.getDate() - localMidnight.getDay());
+    return { startDate: w.toISOString(), endDate: localEndOfDay.toISOString() };
+  }
+
+  if (r === "month") {
+    const m = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    return { startDate: m.toISOString(), endDate: localEndOfDay.toISOString() };
+  }
+
+  if (r && r.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const [yyyy, mm, dd] = r.split("-").map(Number);
+    const start = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+    const end   = new Date(yyyy, mm - 1, dd, 23, 59, 59, 999);
+    return { startDate: start.toISOString(), endDate: end.toISOString() };
+  }
+
   return {};
 };
+
+const getRecentDays = () => {
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    // ✅ Use local date parts instead of toISOString() which gives UTC date
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2, "0");
+    const dd   = String(d.getDate()).padStart(2, "0");
+    const value = i === 0 ? "today" : `${yyyy}-${mm}-${dd}`; // "today" for today, "2025-04-08" for others
+    const label = i === 0 ? "Today"
+      : i === 1 ? "Yesterday"
+      : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    days.push({ value, label });
+  }
+  return days;
+};
+
+const isSystemStartLocationVisit = (visit) =>
+  (visit?.locationName || "").trim().toLowerCase() === "start location";
 
 // ─── Route Connector ──────────────────────────────────────────────────────────
 // Shows the travel segment between two visits: distance + travel time
@@ -385,23 +439,58 @@ const FilterDrawer = ({ open, onClose, filters, onApply }) => {
           <Typography variant="h6" fontWeight={700} sx={{ color: PRIMARY }}>Filter Visits</Typography>
           <IconButton onClick={onClose} size="small"><Close /></IconButton>
         </Box>
-        <Typography sx={{ fontWeight: 600, fontSize: "0.82rem", color: "#0f172a", mb: 1 }}>Date Range</Typography>
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2.5 }}>
-          {[
-            { value: "today",     label: "Today" },
-            { value: "yesterday", label: "Yesterday" },
-            { value: "week",      label: "This Week" },
-            { value: "month",     label: "This Month" },
-          ].map(o => (
-            <Chip key={o.value} label={o.label}
-              onClick={() => setLocal(p => ({ ...p, dateRange: o.value }))}
-              sx={{
-                fontWeight: 600, fontSize: "0.78rem", cursor: "pointer",
-                bgcolor: local.dateRange === o.value ? PRIMARY : "#f1f5f9",
-                color:   local.dateRange === o.value ? "#fff"  : "#374151",
-              }} />
-          ))}
-        </Box>
+        
+
+        {/* Date Range */}
+<Typography sx={{ fontWeight: 600, fontSize: "0.82rem", color: "#0f172a", mb: 1 }}>Date Range</Typography>
+
+{/* Recent day chips */}
+<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
+  {getRecentDays().map(o => (
+    <Chip key={o.value} label={o.label}
+      onClick={() => setLocal(p => ({ ...p, dateRange: o.value }))}
+      sx={{
+        fontWeight: 600, fontSize: "0.78rem", cursor: "pointer",
+        bgcolor: local.dateRange === o.value ? PRIMARY : "#f1f5f9",
+        color:   local.dateRange === o.value ? "#fff"  : "#374151",
+      }} />
+  ))}
+  {/* This Week & This Month */}
+  {[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }].map(o => (
+    <Chip key={o.value} label={o.label}
+      onClick={() => setLocal(p => ({ ...p, dateRange: o.value }))}
+      sx={{
+        fontWeight: 600, fontSize: "0.78rem", cursor: "pointer",
+        bgcolor: local.dateRange === o.value ? PRIMARY : "#f1f5f9",
+        color:   local.dateRange === o.value ? "#fff"  : "#374151",
+      }} />
+  ))}
+</Box>
+
+{/* Custom date picker */}
+<Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2.5 }}>
+  <CalendarToday sx={{ fontSize: 15, color: PRIMARY }} />
+  <Typography sx={{ fontSize: "0.78rem", color: "#374151", fontWeight: 500 }}>Pick a date:</Typography>
+  <Box
+    component="input"
+    type="date"
+    max={new Date().toISOString().split("T")[0]}
+    value={local.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/) ? local.dateRange : ""}
+    onChange={e => e.target.value && setLocal(p => ({ ...p, dateRange: e.target.value }))}
+    sx={{
+      border: `1px solid ${alpha(PRIMARY, 0.3)}`,
+      borderRadius: "8px", px: 1.25, py: 0.6,
+      fontSize: "0.78rem", color: "#374151",
+      outline: "none", cursor: "pointer",
+      "&:focus": { borderColor: PRIMARY },
+    }}
+  />
+</Box>
+
+
+
+
+
         <Typography sx={{ fontWeight: 600, fontSize: "0.82rem", color: "#0f172a", mb: 1 }}>Status</Typography>
         {["Completed", "InProgress", "Cancelled"].map(s => (
           <FormControlLabel key={s}
@@ -622,20 +711,21 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   }, [targetUserId, fetchVisits, fetchGpsDistance, fetchPunchInStatus]);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
-  const totalDist       = visits.reduce((s, v) => s + (v.distanceFromPreviousKm ?? v.distance ?? 0), 0);
-  const avgTime         = visits.length
-    ? Math.round(visits.reduce((s, v) => s + (v.timeSpentMinutes || 0), 0) / visits.length)
-    : 0;
-  const completedCount  = visits.filter(v => v.status === "Completed").length;
-  const inProgressCount = visits.filter(v => v.status === "InProgress").length;
-  const cancelledCount  = visits.filter(v => v.status === "Cancelled").length;
+  const visibleVisits   = visits.filter((visit) => !isSystemStartLocationVisit(visit));
+  const totalDist       = visibleVisits.reduce((s, v) => s + (v.distanceFromPreviousKm ?? v.distance ?? 0), 0);
+  const avgTime         = visibleVisits.length
+    ? Math.round(visibleVisits.reduce((s, v) => s + (v.timeSpentMinutes || 0), 0) / visibleVisits.length)
+      : 0;
+  const completedCount  = visibleVisits.filter(v => v.status === "Completed").length;
+  const inProgressCount = visibleVisits.filter(v => v.status === "InProgress").length;
+  const cancelledCount  = visibleVisits.filter(v => v.status === "Cancelled").length;
   const updatedLabel    = lastUpdated
     ? (() => { const m = Math.floor((Date.now() - lastUpdated) / 60000); return m < 1 ? "just now" : `${m}m ago`; })()
     : null;
 
   // ── Visits sorted oldest → newest for A→B→C display ──────────────────────
   // API returns newest first — reverse for timeline display
-  const sortedVisits = [...visits].reverse();
+  const sortedVisits = [...visibleVisits].reverse();
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f4f6fb" }}>
@@ -712,17 +802,27 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
           
 
 
-              <LiveTrackingMap
-                isPunchedIn={isPunchedIn}
-                hasPunchedOut={hasPunchedOut}
-                // userId={targetUserId}
-                   userId={targetUserId}        // ✅ must match socket.user.id on backend
+           <LiveTrackingMap
+  isPunchedIn={isPunchedIn}
+  hasPunchedOut={hasPunchedOut}
+  userId={targetUserId}
+  isOwner={!isAdminView}
+  height="100%"
+  locateTrigger={locateTrigger}
+  punchInLocation={punchInLocation}
+  visits={visibleVisits} 
+  selectedDate={
+    filters.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/)
+      ? filters.dateRange
+      : (() => {
+          const now = new Date();
+          if (filters.dateRange === "yesterday") now.setDate(now.getDate() - 1);
+          return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+        })()
+  }
+/>
 
-                isOwner={!isAdminView}
-                height="100%"
-                locateTrigger={locateTrigger}
-                punchInLocation={punchInLocation}
-              />
+
             </Box>
 
             {/* Stats row */}
@@ -734,16 +834,16 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                 </Box>
                 {loading ? <Skeleton width={60} height={32} /> : (
                   <>
-                    <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px", lineHeight: 1 }}>
-                      {totalDist.toFixed(2)}{" "}
-                      <Typography component="span" sx={{ fontSize: "0.75rem", fontWeight: 400, color: "#94a3b8" }}>km</Typography>
-                    </Typography>
-                    <Typography sx={{ fontSize: "0.65rem", color: "#94a3b8", mt: 0.5 }}>road distance</Typography>
-                    {gpsDistance?.totalKm > 0 && (
-                      <Typography sx={{ fontSize: "0.65rem", color: alpha(PRIMARY, 0.6), mt: 0.25 }}>
-                        {gpsDistance.totalKm.toFixed(1)} km GPS
-                      </Typography>
-                    )}
+                  <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px", lineHeight: 1 }}>
+  {(gpsDistance?.totalKm ?? totalDist).toFixed(2)}{" "}
+  <Typography component="span" sx={{ fontSize: "0.75rem", fontWeight: 400, color: "#94a3b8" }}>km</Typography>
+</Typography>
+<Typography sx={{ fontSize: "0.65rem", color: "#94a3b8", mt: 0.5 }}>GPS distance</Typography>
+{totalDist > 0 && (
+  <Typography sx={{ fontSize: "0.65rem", color: alpha(PRIMARY, 0.6), mt: 0.25 }}>
+    {totalDist.toFixed(1)} km road
+  </Typography>
+)}
                   </>
                 )}
               </Box>
@@ -755,7 +855,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                 </Box>
                 {loading ? <Skeleton width={60} height={32} /> : (
                   <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px", lineHeight: 1 }}>
-                    {visits.length}{" "}
+                    {visibleVisits.length}{" "}
                     <Typography component="span" sx={{ fontSize: "0.75rem", fontWeight: 400, color: "#94a3b8" }}>stops</Typography>
                   </Typography>
                 )}
@@ -776,18 +876,18 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
             </Box>
 
             {/* Completion bar */}
-            {!loading && visits.length > 0 && (
+            {!loading && visibleVisits.length > 0 && (
               <Box sx={{ bgcolor: "#fff", borderRadius: "14px", p: 2.5, border: "1px solid #e8edf2" }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
                   <Typography sx={{ fontWeight: 700, fontSize: "0.85rem", color: "#0f172a" }}>Visit Completion</Typography>
                   <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: PRIMARY }}>
-                    {Math.round((completedCount / visits.length) * 100)}%
+                    {Math.round((completedCount / visibleVisits.length) * 100)}%
                   </Typography>
                 </Box>
                 <Box sx={{ display: "flex", height: 10, borderRadius: "999px", overflow: "hidden", bgcolor: "#f1f5f9", mb: 1.5 }}>
-                  {completedCount  > 0 && <Box sx={{ width: `${(completedCount  / visits.length) * 100}%`, bgcolor: SUCCESS, transition: "width 0.6s" }} />}
-                  {inProgressCount > 0 && <Box sx={{ width: `${(inProgressCount / visits.length) * 100}%`, bgcolor: PRIMARY, animation: "sh 1.5s ease-in-out infinite", "@keyframes sh": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.5 } } }} />}
-                  {cancelledCount  > 0 && <Box sx={{ width: `${(cancelledCount  / visits.length) * 100}%`, bgcolor: ERROR, opacity: 0.45 }} />}
+                  {completedCount  > 0 && <Box sx={{ width: `${(completedCount  / visibleVisits.length) * 100}%`, bgcolor: SUCCESS, transition: "width 0.6s" }} />}
+                  {inProgressCount > 0 && <Box sx={{ width: `${(inProgressCount / visibleVisits.length) * 100}%`, bgcolor: PRIMARY, animation: "sh 1.5s ease-in-out infinite", "@keyframes sh": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.5 } } }} />}
+                  {cancelledCount  > 0 && <Box sx={{ width: `${(cancelledCount  / visibleVisits.length) * 100}%`, bgcolor: ERROR, opacity: 0.45 }} />}
                 </Box>
                 <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                   {[
@@ -800,7 +900,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                       <Typography sx={{ fontSize: "0.72rem", color: "#64748b" }}>{s.label}</Typography>
                       <Box sx={{ px: 0.75, py: 0.1, borderRadius: "4px", bgcolor: alpha(s.color, 0.1) }}>
                         <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: s.color }}>
-                          {s.count} · {Math.round((s.count / visits.length) * 100)}%
+                          {s.count} · {Math.round((s.count / visibleVisits.length) * 100)}%
                         </Typography>
                       </Box>
                     </Box>
@@ -833,7 +933,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
               {!loading && totalDist > 0 && (
                 <Chip
                   icon={<Route sx={{ fontSize: "13px !important" }} />}
-                  label={`${totalDist.toFixed(2)} km travelled`}
+                  label={`${(gpsDistance?.totalKm ?? totalDist).toFixed(2)} km travelled`}
                   size="small"
                   sx={{ mb: 0.75, bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY, fontWeight: 700, fontSize: "0.7rem", height: 22, "& .MuiChip-icon": { color: PRIMARY } }}
                 />
@@ -851,11 +951,20 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
             <Box sx={{ px: 3, py: 1.25, borderBottom: "1px solid #f1f5f9", bgcolor: "#fafbfc", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <CalendarToday sx={{ fontSize: 13, color: PRIMARY }} />
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: PRIMARY }}>
-                  {filters.dateRange.charAt(0).toUpperCase() + filters.dateRange.slice(1)}
-                </Typography>
+               
+<Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: PRIMARY }}>
+  {filters.dateRange === "today" ? "Today"
+   : filters.dateRange === "yesterday" ? "Yesterday"
+   : filters.dateRange === "week" ? "This Week"
+   : filters.dateRange === "month" ? "This Month"
+   : filters.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/)
+     ? new Date(filters.dateRange).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+     : filters.dateRange}
+</Typography>
+
+
                 <Typography sx={{ fontSize: "0.72rem", color: "#94a3b8" }}>
-                  · {loading ? "…" : `${visits.length} visit${visits.length !== 1 ? "s" : ""}`}
+                  · {loading ? "…" : `${visibleVisits.length} visit${visibleVisits.length !== 1 ? "s" : ""}`}
                 </Typography>
               </Box>
               <Badge badgeContent={filters.statuses?.length || 0} color="primary"
@@ -883,7 +992,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                     </Box>
                   ))}
                 </Box>
-              ) : visits.length === 0 ? (
+              ) : visibleVisits.length === 0 ? (
                 <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 3 }}>
                   {isPunchedIn && !hasPunchedOut ? (
                     <Box sx={{ display: "flex", gap: 2 }}>
