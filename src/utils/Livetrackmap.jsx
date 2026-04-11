@@ -22,7 +22,7 @@ import {
 import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
-const API  = "https://solar-backend-1-4szm.onrender.com";
+const API  = "https://vanurtech-solar-backend.onrender.com";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
 const MIN_MOVE_METRES = 20;
