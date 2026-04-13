@@ -803,6 +803,19 @@ export default function Attendance() {
     };
   }, []);
 
+  const getCurrentBatterySnapshot = useCallback(async () => {
+    if (!("getBattery" in navigator)) return null;
+    try {
+      const battery = await navigator.getBattery();
+      return {
+        batteryPercentage: Math.round(battery.level * 100),
+        isCharging: battery.charging,
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!user?._id || !hasPunchedIn || hasPunchedOut) return;
     if (!("getBattery" in navigator)) return;
@@ -867,12 +880,14 @@ export default function Attendance() {
 
     setPunchLoading(true);
     try {
+      const batterySnapshot = await getCurrentBatterySnapshot();
       const fn     = mode === "in" ? punchIn : punchOut;
       const result = await fn({
         latitude:  parseFloat(geo.latitude.toFixed(6)),
         longitude: parseFloat(geo.longitude.toFixed(6)),
         accuracy:  geo.accuracy,
         address:   geo.address,
+        ...(batterySnapshot || {}),
       });
 
      if (result?.success) {
@@ -914,7 +929,7 @@ export default function Attendance() {
     } finally {
       setPunchLoading(false);
     }
-  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, fetchCalendarMonth, currentMonth, timer, showSnack, user, socketRef]);
+  }, [geo, punchState.mode, hasPunchedIn, hasPunchedOut, punchIn, punchOut, loadData, fetchCalendarMonth, currentMonth, timer, showSnack, user, socketRef, getCurrentBatterySnapshot]);
 
   const handleCloseConfirm = useCallback(() => {
     if (!punchLoading) { setPunchState({ stage: null, mode: "in" }); geo.reset(); }

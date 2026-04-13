@@ -45,6 +45,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { useAuth } from "../contexts/AuthContext";
+import vanurtechLogo from "../assets/vanurtech-logo.svg";
 
 // ─── Color Constants ──────────────────────────────────────────────────────────
 const PRIMARY_COLOR = "#4569ea";
@@ -351,11 +352,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
           flexShrink: 0,
         }}
       >
-        <Typography
-          sx={{ fontSize: effectiveCollapsed ? "1rem" : "1.2rem", lineHeight: 1, color: "#fff" }}
-        >
-          ☀
-        </Typography>
+<Box component="img" src={vanurtechLogo} alt="Vanurtech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
       </Box>
       {!effectiveCollapsed && (
         <Box sx={{ overflow: "hidden" }}>
@@ -365,7 +362,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}
           >
-            SunergyTech
+            Vanurtech
           </Typography>
           <Typography
             variant="caption"
@@ -405,7 +402,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             border: "2px solid rgba(255,255,255,0.28)",
           }}
         >
-          <Typography sx={{ fontSize: "1.1rem", color: "#fff" }}>☀</Typography>
+          <Box component="img" src={vanurtechLogo} alt="Vanurtech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
         </Box>
         <Box>
           <Typography
@@ -414,7 +411,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2 }}
           >
-            SunergyTech
+            Vanurtech
           </Typography>
           <Typography
             variant="caption"
@@ -690,7 +687,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               border: "1.5px solid rgba(255,255,255,0.25)",
             }}
           >
-            <Typography sx={{ fontSize: "0.95rem", lineHeight: 1, color: "#fff" }}>☀</Typography>
+            <Box component="img" src={vanurtechLogo} alt="Vanurtech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.35 }} />
           </Box>
           <Typography
             variant="subtitle1"
@@ -701,7 +698,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               fontSize: "1rem",
             }}
           >
-            SunergyTech
+            Vanurtech
           </Typography>
         </Box>
 
@@ -785,3 +782,4 @@ export const AppLayout = ({ children }) => {
 };
 
 export default Sidebar;
+

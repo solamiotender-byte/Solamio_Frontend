@@ -32,7 +32,7 @@ import {
   CheckCircleOutline,
 } from "@mui/icons-material";
 import { useAuth } from "../../contexts/AuthContext";
-import logo from "../../logo.png";
+import logo from "../../assets/vanurtech-logo.svg";
 
 const COLOR = "#4569ea";
 const COLOR_LIGHT = "#5c7cec";
@@ -853,7 +853,7 @@ const Login = () => {
                   variant="caption"
                   sx={{ color: COLOR, fontWeight: 500 }}
                 >
-                  SunergyTech Mobile
+                  Vanurtech Mobile
                 </Typography>
               </Box>
             )}
@@ -892,12 +892,12 @@ const Login = () => {
                   {/* Logo Image */}
                   <img
                     src={logo}
-                    alt="SunergyTech Logo"
+                    alt="Vanurtech Logo"
                     style={{
-                      width: "100%",
-                      height: "100%",
+                      width: "120%",
+                      height: "120%",
                       objectFit: "contain",
-                      padding: "8px",
+                      padding: "12px",
                     }}
                   />
                 </Box>
@@ -911,7 +911,7 @@ const Login = () => {
                     letterSpacing: "0.5px",
                   }}
                 >
-                  Solar Management System
+                  SOLAR CRM SOFTWARE
                 </Typography>
               </Box>
             </Fade>
@@ -1244,7 +1244,7 @@ const Login = () => {
                   lineHeight: 1.4,
                 }}
               >
-                © {new Date().getFullYear()} SunergyTech Solar Management
+                � {new Date().getFullYear()} Vanurtech Solar Management
                 System. All rights reserved.
                 <br />
                 <Typography
@@ -1284,3 +1284,4 @@ const Login = () => {
 };
 
 export default Login;
+

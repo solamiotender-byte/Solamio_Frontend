@@ -172,6 +172,8 @@ export const useAttendance = () => {
           longitude: locationData.longitude,
           accuracy: locationData.accuracy,
           address: locationData.address,
+          batteryPercentage: locationData.batteryPercentage,
+          isCharging: locationData.isCharging,
         });
         if (result?.success) {
           setSuccess(result.message || "Punch in successful");
@@ -207,6 +209,8 @@ export const useAttendance = () => {
           longitude: locationData.longitude,
           accuracy: locationData.accuracy,
           address: locationData.address,
+          batteryPercentage: locationData.batteryPercentage,
+          isCharging: locationData.isCharging,
         });
         if (result?.success) {
           setSuccess(result.message || "Punch out successful");

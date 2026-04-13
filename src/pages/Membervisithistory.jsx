@@ -27,6 +27,19 @@ const SUCCESS = "#22c55e";
 const WARNING = "#f59e0b";
 const ERROR   = "#ef4444";
 
+const getBatteryChipStyle = (percentage) => {
+  if (percentage === null || percentage === undefined) {
+    return { color: "#64748b", bg: "#f8fafc", border: "#e2e8f0", label: "Battery N/A" };
+  }
+  if (percentage > 60) {
+    return { color: "#059669", bg: alpha("#10b981", 0.12), border: alpha("#10b981", 0.22), label: `Battery ${percentage}%` };
+  }
+  if (percentage > 20) {
+    return { color: "#d97706", bg: alpha("#f59e0b", 0.12), border: alpha("#f59e0b", 0.22), label: `Battery ${percentage}%` };
+  }
+  return { color: "#dc2626", bg: alpha("#ef4444", 0.12), border: alpha("#ef4444", 0.22), label: `Battery ${percentage}%` };
+};
+
 const apiFetch = async (path, params = {}, options = {}) => {
   const token = localStorage.getItem("token") || localStorage.getItem("authToken") || localStorage.getItem("accessToken");
   const url   = new URL(`${BASE_URL}${path}`);
@@ -527,7 +540,7 @@ export default function MemberVisitHistory({ userId: propUserId }) {
   const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userId: paramUserId } = useParams();
-  useLocation();
+  const location = useLocation();
   const { user: authUser } = useAuth();
 
   const userId      = paramUserId || propUserId || null;
@@ -560,6 +573,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   const [gpsDistance,      setGpsDistance]      = useState(null);
   const [autoVisitToast,   setAutoVisitToast]   = useState(null);
   const [dwellInfo,        setDwellInfo]        = useState(null);
+  const [batteryInfo,      setBatteryInfo]      = useState({ percentage: null, isCharging: false, recordedAt: null });
 
   const handleLocateMe = () => {
     setLocating(true);
@@ -589,6 +603,10 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
 
   useEffect(() => { return () => { if (isCurrentlyTracking()) stopTracking(); }; }, []);
 
+  useEffect(() => {
+    setBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
+  }, [targetUserId]);
+
   const fetchPunchInStatus = useCallback(async () => {
     if (!targetUserId) return;
     try {
@@ -602,6 +620,10 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
 
       if (att?.punchIn?.time) {
         const out = !!att?.punchOut?.time;
+        const batterySnapshot =
+          att.punchIn?.battery ||
+          att.metadata?.batteryAtPunchIn ||
+          null;
         setIsPunchedIn(!out);
         setHasPunchedOut(out);
         setPunchInLocation({
@@ -610,6 +632,13 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
           address: att.punchIn?.address || null,
           time:    att.punchIn?.time    || null,
         });
+        if (batterySnapshot) {
+          setBatteryInfo({
+            percentage: batterySnapshot.percentage ?? null,
+            isCharging: batterySnapshot.isCharging ?? false,
+            recordedAt: batterySnapshot.recordedAt || null,
+          });
+        }
         if (out && att.punchOut?.time) {
           setPunchOutLocation({
             lat:     att.punchOut?.location?.lat  || att.punchOut?.location?.latitude  || null,
@@ -676,7 +705,42 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     } catch (e) { console.warn("GPS distance fetch failed:", e.message); }
   }, [targetUserId]);
 
+  const fetchLatestBattery = useCallback(async () => {
+    if (!targetUserId) return;
+    try {
+      const res = await apiFetch(`/battery/latest/${targetUserId}`);
+      const data = res?.data || res?.result || res;
+      if (data?.percentage !== undefined) {
+        setBatteryInfo({
+          percentage: data.percentage ?? null,
+          isCharging: data.isCharging ?? false,
+          recordedAt: data.createdAt || data.recordedAt || null,
+        });
+      }
+    } catch {}
+  }, [targetUserId]);
+
   const authUserId = authUser?._id || authUser?.id || authUser?.userId || null;
+  const selectedMember = location.state || {};
+  const memberName =
+    selectedMember.memberName ||
+    selectedMember.userName ||
+    authUser?.name ||
+    authUser?.fullName ||
+    "Selected User";
+  const memberRole =
+    selectedMember.memberRole ||
+    authUser?.role ||
+    (isAdminView ? "Field User" : "My Visit History");
+  const memberPhone = selectedMember.memberPhone || authUser?.phoneNumber || authUser?.phone || "";
+  const memberEmail = selectedMember.memberEmail || authUser?.email || "";
+  const memberInitials = memberName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "SU";
+
   useEffect(() => {
     if (!targetUserId) return;
     setPage(1);
@@ -684,7 +748,8 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     fetchStats();
     fetchPunchInStatus();
     fetchGpsDistance();
-  }, [filters, userId, authUserId, fetchVisits, fetchStats, fetchPunchInStatus, fetchGpsDistance]);
+    fetchLatestBattery();
+  }, [filters, userId, authUserId, fetchVisits, fetchStats, fetchPunchInStatus, fetchGpsDistance, fetchLatestBattery]);
 
   const handleRefresh = () => {
     setPage(1);
@@ -692,6 +757,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     fetchStats();
     fetchPunchInStatus();
     fetchGpsDistance();
+    fetchLatestBattery();
   };
 
   useEffect(() => {
@@ -706,9 +772,10 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
       fetchVisits(1, false);
       fetchGpsDistance();
       fetchPunchInStatus();
+      fetchLatestBattery();
     }, 12_000);
     return () => clearInterval(interval);
-  }, [targetUserId, fetchVisits, fetchGpsDistance, fetchPunchInStatus]);
+  }, [targetUserId, fetchVisits, fetchGpsDistance, fetchPunchInStatus, fetchLatestBattery]);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const visibleVisits   = visits.filter((visit) => !isSystemStartLocationVisit(visit));
@@ -726,6 +793,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   // ── Visits sorted oldest → newest for A→B→C display ──────────────────────
   // API returns newest first — reverse for timeline display
   const sortedVisits = [...visibleVisits].reverse();
+  const batteryChip = getBatteryChipStyle(batteryInfo.percentage);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f4f6fb" }}>
@@ -773,6 +841,69 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
               </Box>
             )}
 
+            {isAdminView && (
+              <Box sx={{
+                bgcolor: "#fff",
+                borderRadius: "16px",
+                border: "1px solid #e8edf2",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.04)",
+                p: { xs: 2, sm: 2.5 },
+                display: "flex",
+                alignItems: { xs: "flex-start", sm: "center" },
+                justifyContent: "space-between",
+                gap: 2,
+                flexWrap: "wrap",
+              }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
+                  <Box sx={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: "14px",
+                    bgcolor: alpha(PRIMARY, 0.12),
+                    color: PRIMARY,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "1rem",
+                    fontWeight: 800,
+                    flexShrink: 0,
+                  }}>
+                    {memberInitials}
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: { xs: "1rem", sm: "1.08rem" }, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>
+                      {memberName}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.8rem", color: "#64748b", mt: 0.35 }}>
+                      {memberRole}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  <Chip
+                    size="small"
+                    label={`${batteryChip.label}${batteryInfo.isCharging ? " • Charging" : ""}`}
+                    sx={{ bgcolor: batteryChip.bg, color: batteryChip.color, fontWeight: 700, border: `1px solid ${batteryChip.border}` }}
+                  />
+                  {memberPhone && (
+                    <Chip
+                      size="small"
+                      label={memberPhone}
+                      sx={{ bgcolor: "#f8fafc", color: "#334155", fontWeight: 600, border: "1px solid #e2e8f0" }}
+                    />
+                  )}
+                  {memberEmail && (
+                    <Chip
+                      size="small"
+                      label={memberEmail}
+                      sx={{ bgcolor: alpha(PRIMARY, 0.06), color: PRIMARY, fontWeight: 600 }}
+                    />
+                  )}
+                </Box>
+              </Box>
+            )}
+
             {/* Map */}
             <Box sx={{
               borderRadius: "16px", overflow: "hidden", border: "1px solid #e2e8f0",
@@ -780,6 +911,31 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
               boxShadow: "0 4px 24px rgba(0,0,0,0.06)", transition: "height 0.3s ease",
               position: "relative",
             }}>
+              <Box sx={{
+                position: "absolute",
+                top: 12,
+                left: 12,
+                zIndex: 1000,
+                bgcolor: "rgba(255,255,255,0.96)",
+                backdropFilter: "blur(10px)",
+                border: "1px solid rgba(226,232,240,0.95)",
+                borderRadius: "14px",
+                px: 1.5,
+                py: 1.1,
+                boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
+                maxWidth: { xs: "calc(100% - 110px)", sm: 320 },
+              }}>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#64748b", mb: 0.2 }}>
+                  Route View
+                </Typography>
+                <Typography sx={{ fontSize: { xs: "0.92rem", sm: "1rem" }, fontWeight: 800, color: "#0f172a", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {memberName}
+                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", color: "#64748b", mt: 0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {memberRole}{updatedLabel ? ` · Updated ${updatedLabel}` : ""}
+                </Typography>
+              </Box>
+
               <Tooltip title={fullscreen ? "Exit fullscreen" : "Fullscreen"} placement="left">
                 <Box onClick={() => setFullscreen(p => !p)} sx={{ position: "absolute", top: 50, right: 10, zIndex: 1000, bgcolor: "#fff", borderRadius: "10px", p: 0.75, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", border: "1px solid #e2e8f0", display: "flex", "&:hover": { bgcolor: "#f8fafc" } }}>
                   {fullscreen ? <FullscreenExit sx={{ fontSize: 18, color: "#374151" }} /> : <Fullscreen sx={{ fontSize: 18, color: "#374151" }} />}
@@ -1006,6 +1162,15 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                           <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched In</Typography>
                           {punchInLocation?.time && <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchInLocation.time)}</Typography>}
                         </Box>
+                        {batteryInfo.percentage !== null && (
+                          <Box sx={{ mb: 0.8 }}>
+                            <Chip
+                              size="small"
+                              label={`${batteryChip.label}${batteryInfo.isCharging ? " • Charging" : ""}`}
+                              sx={{ bgcolor: batteryChip.bg, color: batteryChip.color, fontWeight: 700, border: `1px solid ${batteryChip.border}`, height: 24 }}
+                            />
+                          </Box>
+                        )}
                         {punchInLocation?.address && (
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.5 }}>
                             <LocationOn sx={{ fontSize: 12, color: "#94a3b8", mt: "2px", flexShrink: 0 }} />
@@ -1047,6 +1212,15 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                             <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched In</Typography>
                             {punchInLocation.time && <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchInLocation.time)}</Typography>}
                           </Box>
+                          {batteryInfo.percentage !== null && (
+                            <Box sx={{ mb: 0.8 }}>
+                              <Chip
+                                size="small"
+                                label={`${batteryChip.label}${batteryInfo.isCharging ? " • Charging" : ""}`}
+                                sx={{ bgcolor: batteryChip.bg, color: batteryChip.color, fontWeight: 700, border: `1px solid ${batteryChip.border}`, height: 24 }}
+                              />
+                            </Box>
+                          )}
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4 }}>
                             <LocationOn sx={{ fontSize: 12, color: PRIMARY, mt: "2px", flexShrink: 0 }} />
                             <Typography sx={{ fontSize: "0.75rem", color: "#475569", lineHeight: 1.5 }}>
