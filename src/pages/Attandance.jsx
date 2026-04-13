@@ -126,8 +126,8 @@ const resolveCalendarStatus = (dateMs, att, todayMs, joinDateMs) => {
   const isFuture   = dateMs > todayMs;
   const isBeforeJoin = dateMs < joinDateMs;
 
-  if (isWeekend || isFuture || isBeforeJoin) return undefined;
   if (att) return att.status || "present";
+  if (isWeekend || isFuture || isBeforeJoin) return undefined;
   if (isPast) return "absent";
   return undefined;
 };
@@ -240,6 +240,8 @@ const CalCell = ({ day, isSelected, isToday, isWeekend, status, onClick, isPrev 
     leave:   "#a855f7",
     holiday: "#3b82f6",
   };
+  const selectedBg = status ? statusBg[status] || alpha(cfg?.color, 0.16) : PRIMARY;
+  const selectedColor = status ? (statusDot[status] || cfg?.color || PRIMARY) : "#fff";
 
   return (
     <Box
@@ -259,14 +261,14 @@ const CalCell = ({ day, isSelected, isToday, isWeekend, status, onClick, isPrev 
         userSelect: "none",
         position: "relative",
         bgcolor: isSelected
-          ? PRIMARY
+          ? selectedBg
           : isToday
           ? alpha(PRIMARY, 0.12)
           : status
           ? statusBg[status] || alpha(cfg?.color, 0.12)
           : "transparent",
         color: isSelected
-          ? "#fff"
+          ? selectedColor
           : isToday
           ? PRIMARY
           : status
@@ -274,18 +276,20 @@ const CalCell = ({ day, isSelected, isToday, isWeekend, status, onClick, isPrev 
           : isWeekend
           ? alpha("#000", 0.3)
           : "text.primary",
-        border: isToday && !isSelected
+        border: isSelected && status
+          ? `2px solid ${statusDot[status] || cfg?.color || PRIMARY}`
+          : isToday && !isSelected
           ? `2px solid ${PRIMARY}`
           : status && !isSelected
           ? `1.5px solid ${alpha(statusDot[status] || cfg?.color || PRIMARY, 0.35)}`
           : "2px solid transparent",
         "&:hover": !isPrev
-          ? { bgcolor: isSelected ? PRIMARY : alpha(PRIMARY, 0.1), transform: "scale(1.08)" }
+          ? { bgcolor: isSelected ? selectedBg : alpha(PRIMARY, 0.1), transform: "scale(1.08)" }
           : {},
       }}
     >
       {day}
-      {status && !isSelected && (
+      {status && (
         <Box sx={{
           position: "absolute", bottom: 3,
           width: 5, height: 5, borderRadius: "50%",

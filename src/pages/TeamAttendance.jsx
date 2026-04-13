@@ -8,12 +8,12 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Box, Typography, Avatar, Chip, TextField, InputAdornment, Button,
   IconButton, Tooltip, LinearProgress, Divider, CircularProgress,
-  Dialog, DialogContent,
+  Dialog, DialogContent, DialogTitle, DialogActions,
 } from "@mui/material";
 import {
   Search, Refresh, AccessTime, CheckCircle, Cancel, LocationOn, Person,
   BatteryChargingFull, BatteryAlert, Battery20, Battery50, Battery80,
-  CalendarToday,
+  CalendarToday, Celebration,
 } from "@mui/icons-material";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -59,6 +59,8 @@ const formatSelectedDateLabel = (value) => {
     year: "numeric",
   });
 };
+
+const isTodayValue = (value) => value === getTodayDateInput();
 
 // ── Battery helpers ───────────────────────────────────────────────────────────
 const getBatteryStyle = (pct) => {
@@ -134,6 +136,19 @@ const BatteryBar = ({ percentage, isCharging }) => {
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 const StatusBadge = ({ member }) => {
+  if (member.status === "holiday") {
+    return (
+      <Chip
+        icon={<Celebration sx={{ fontSize: "0.8rem !important" }} />}
+        label="Holiday"
+        size="small"
+        sx={{
+          bgcolor: "#f3e8ff", color: "#9333ea", fontWeight: 700, fontSize: "0.7rem", height: 24,
+          "& .MuiChip-icon": { color: "#9333ea" },
+        }}
+      />
+    );
+  }
   if (member.punchedIn && !member.punchOutTime) {
     return (
       <Chip
@@ -364,6 +379,7 @@ const MemberCard = ({ member }) => {
 
   const isActive = member.punchedIn && !member.punchOutTime;
   const isPunchedOut = !!member.punchOutTime;
+  const isHoliday = member.status === "holiday";
   const battStyle = getBatteryStyle(member.batteryPercentage);
 
   return (
@@ -374,7 +390,9 @@ const MemberCard = ({ member }) => {
           borderRadius: "16px",
           p: 2.5,
           boxShadow: "0 1px 8px rgba(0,0,0,0.07)",
-          border: isActive
+          border: isHoliday
+            ? "1.5px solid #d8b4fe"
+            : isActive
             ? "1.5px solid #bbf7d0"
             : isPunchedOut
             ? "1.5px solid #fde68a"
@@ -446,7 +464,22 @@ const MemberCard = ({ member }) => {
         <Divider sx={{ mb: 1.5, borderColor: "#f1f5f9" }} />
 
         {/* Punch info */}
-        {member.punchedIn ? (
+        {isHoliday ? (
+          <Box
+            sx={{
+              display: "flex", flexDirection: "column", gap: 0.6,
+              bgcolor: "#faf5ff", borderRadius: "10px", px: 1.5, py: 1.25,
+              border: "1px solid #e9d5ff",
+            }}
+          >
+            <Typography sx={{ fontSize: "0.8rem", color: "#7e22ce", fontWeight: 700 }}>
+              Holiday on this date
+            </Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: "#6b21a8" }}>
+              {member.holidayReason || "Office holiday"}
+            </Typography>
+          </Box>
+        ) : member.punchedIn ? (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 0.8 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
               <AccessTime sx={{ fontSize: "0.9rem", color: "#22c55e" }} />
@@ -590,19 +623,26 @@ const MemberCard = ({ member }) => {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const TeamAttendance = () => {
   const { user } = useAuth();
+  const canCreateHoliday = user?.role === "Head_office";
   const [team, setTeam] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [selectedDate, setSelectedDate] = useState(getTodayDateInput());
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [holidayDialogOpen, setHolidayDialogOpen] = useState(false);
+  const [holidayDate, setHolidayDate] = useState(getTodayDateInput());
+  const [holidayReason, setHolidayReason] = useState("");
+  const [holidaySubmitting, setHolidaySubmitting] = useState(false);
+  const [actionMessage, setActionMessage] = useState({ type: "", text: "" });
 
   const fetchData = useCallback(async (showSpinner = true) => {
   if (showSpinner) setLoading(true);
   else setRefreshing(true);
 
     try {
-    const today = new Date().toISOString().split("T")[0];
+    const targetDate = selectedDate;
     const token = localStorage.getItem("token");
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -627,8 +667,8 @@ const TeamAttendance = () => {
         const attRes = await axios.get(`${API}/api/v1/attendance`, {
           headers,
           params: {
-            startDate: today,
-            endDate: today,
+            startDate: targetDate,
+            endDate: targetDate,
             limit: 200,
             // ✅ Backend role filter handles scoping automatically
             // No need to pass userIds — backend returns only what this role can see
@@ -690,6 +730,9 @@ const TeamAttendance = () => {
       const att = attMap[uid] || null;
       const punchedIn = !!att?.punchIn?.time;
       const punchOutTime = att?.punchOut?.time ? formatTime(att.punchOut.time) : null;
+      const holidayReason = att?.status === "holiday"
+        ? (att?.remarks || att?.metadata?.holidayReason || "Holiday")
+        : null;
 
       return {
         id: uid,
@@ -700,11 +743,13 @@ const TeamAttendance = () => {
         role: u.role || "TEAM",
         avatar: (u.firstName?.[0] || "").toUpperCase(),
         color: getColor(u.firstName || ""),
+        status: att?.status || "absent",
         punchedIn,
         punchInTime: punchedIn ? formatTime(att.punchIn.time) : null,
         punchOutTime,
         location: att?.punchIn?.address || att?.punchOut?.address || null,
         totalHours: att?.workHours ? formatHours(att.workHours) : null,
+        holidayReason,
         // ✅ Fixed battery key lookup
         batteryPercentage: batteryMap[uid]?.percentage ?? null,
         isCharging: batteryMap[uid]?.isCharging ?? false,
@@ -719,7 +764,7 @@ const TeamAttendance = () => {
     setLoading(false);
     setRefreshing(false);
   }
-}, []);
+}, [selectedDate]);
 
   useEffect(() => {
     fetchData();
@@ -727,9 +772,50 @@ const TeamAttendance = () => {
 
   // Auto-refresh every 60 seconds
   useEffect(() => {
+    if (!isTodayValue(selectedDate)) return undefined;
     const t = setInterval(() => fetchData(false), 60000);
     return () => clearInterval(t);
-  }, [fetchData]);
+  }, [fetchData, selectedDate]);
+
+  const openHolidayDialog = () => {
+    setHolidayDate(selectedDate);
+    setHolidayReason("");
+    setActionMessage({ type: "", text: "" });
+    setHolidayDialogOpen(true);
+  };
+
+  const handleCreateHoliday = async () => {
+    if (!holidayDate || !holidayReason.trim()) {
+      setActionMessage({ type: "error", text: "Please select a date and write the holiday reason." });
+      return;
+    }
+
+    setHolidaySubmitting(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.post(
+        `${API}/api/v1/attendance/holiday`,
+        { date: holidayDate, reason: holidayReason.trim() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const result = res.data?.result || res.data?.data || {};
+      setActionMessage({
+        type: "success",
+        text: `Holiday saved. Created ${result.createdCount || 0}, updated ${result.updatedCount || 0}, skipped ${result.skippedCount || 0}.`,
+      });
+      setSelectedDate(holidayDate);
+      setHolidayDialogOpen(false);
+      await fetchData(false);
+    } catch (error) {
+      setActionMessage({
+        type: "error",
+        text: error?.response?.data?.message || error.message || "Failed to create holiday.",
+      });
+    } finally {
+      setHolidaySubmitting(false);
+    }
+  };
 
   const filtered = team.filter((m) => {
     const matchSearch = `${m.firstName} ${m.lastName} ${m.phoneNumber} ${m.email}`
@@ -738,6 +824,8 @@ const TeamAttendance = () => {
     const matchFilter =
       filter === "all"
         ? true
+        : filter === "holiday"
+        ? m.status === "holiday"
         : filter === "in"
         ? m.punchedIn && !m.punchOutTime
         : filter === "out"
@@ -750,7 +838,8 @@ const TeamAttendance = () => {
 
   const punchedInCount = team.filter((m) => m.punchedIn && !m.punchOutTime).length;
   const punchedOutCount = team.filter((m) => !!m.punchOutTime).length;
-  const absentCount = team.filter((m) => !m.punchedIn).length;
+  const holidayCount = team.filter((m) => m.status === "holiday").length;
+  const absentCount = team.filter((m) => !m.punchedIn && m.status !== "holiday").length;
   const lowBatteryCount = team.filter(
     (m) => m.batteryPercentage !== null && m.batteryPercentage <= 20
   ).length;
@@ -759,6 +848,7 @@ const TeamAttendance = () => {
     { key: "all", label: "All", count: team.length, color: "#4569ea" },
     { key: "in", label: "Active", count: punchedInCount, color: "#22c55e" },
     { key: "out", label: "Punched Out", count: punchedOutCount, color: "#f59e0b" },
+    { key: "holiday", label: "Holiday", count: holidayCount, color: "#9333ea" },
     { key: "absent", label: "Absent", count: absentCount, color: "#ef4444" },
     { key: "low", label: "Low Battery", count: lowBatteryCount, color: "#dc2626" },
   ];
@@ -806,6 +896,9 @@ const TeamAttendance = () => {
               weekday: "long", day: "numeric", month: "long",
             })}
           </Typography>
+          <Typography sx={{ color: "rgba(255,255,255,0.86)", fontSize: "0.78rem", fontWeight: 600, mt: 0.35 }}>
+            Selected date: {formatSelectedDateLabel(selectedDate)}
+          </Typography>
           <Box sx={{ mt: 1.5, width: { xs: "100%", sm: 280 } }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
               <Typography sx={{ color: "rgba(255,255,255,0.75)", fontSize: "0.72rem" }}>
@@ -831,26 +924,62 @@ const TeamAttendance = () => {
           </Box>
         </Box>
 
-        <Tooltip title="Refresh attendance">
-          <IconButton
-            onClick={() => fetchData(false)}
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <TextField
+            type="date"
+            size="small"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
             sx={{
-              bgcolor: "rgba(255,255,255,0.15)", color: "#fff",
-              borderRadius: "12px", width: 44, height: 44,
-              "&:hover": { bgcolor: "rgba(255,255,255,0.28)" },
+              minWidth: 170,
+              "& .MuiOutlinedInput-root": {
+                borderRadius: "12px",
+                bgcolor: "rgba(255,255,255,0.15)",
+                "& fieldset": { borderColor: "rgba(255,255,255,0.24)" },
+              },
+              "& .MuiInputBase-input": { color: "#fff" },
             }}
-          >
-            <Refresh
+          />
+          {canCreateHoliday && (
+            <Button
+              onClick={openHolidayDialog}
+              startIcon={<Celebration />}
               sx={{
-                animation: refreshing ? "spin 0.8s linear infinite" : "none",
-                "@keyframes spin": {
-                  from: { transform: "rotate(0deg)" },
-                  to: { transform: "rotate(360deg)" },
-                },
+                borderRadius: "12px",
+                px: 1.6,
+                py: 1,
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.22)",
+                bgcolor: "rgba(255,255,255,0.14)",
+                textTransform: "none",
+                fontWeight: 700,
+                "&:hover": { bgcolor: "rgba(255,255,255,0.24)" },
               }}
-            />
-          </IconButton>
-        </Tooltip>
+            >
+              Add Holiday
+            </Button>
+          )}
+          <Tooltip title="Refresh attendance">
+            <IconButton
+              onClick={() => fetchData(false)}
+              sx={{
+                bgcolor: "rgba(255,255,255,0.15)", color: "#fff",
+                borderRadius: "12px", width: 44, height: 44,
+                "&:hover": { bgcolor: "rgba(255,255,255,0.28)" },
+              }}
+            >
+              <Refresh
+                sx={{
+                  animation: refreshing ? "spin 0.8s linear infinite" : "none",
+                  "@keyframes spin": {
+                    from: { transform: "rotate(0deg)" },
+                    to: { transform: "rotate(360deg)" },
+                  },
+                }}
+              />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* Stats row */}
@@ -865,6 +994,7 @@ const TeamAttendance = () => {
           { label: "Total", value: team.length, color: "#4569ea", bg: "#eff6ff" },
           { label: "Active Now", value: punchedInCount, color: "#16a34a", bg: "#f0fdf4" },
           { label: "Punched Out", value: punchedOutCount, color: "#d97706", bg: "#fffbeb" },
+          { label: "Holiday", value: holidayCount, color: "#9333ea", bg: "#faf5ff" },
           { label: "Absent", value: absentCount, color: "#dc2626", bg: "#fef2f2" },
           { label: "Low Battery", value: lowBatteryCount, color: "#b45309", bg: "#fefce8" },
         ].map((stat) => (
@@ -911,6 +1041,19 @@ const TeamAttendance = () => {
             },
           }}
         />
+        {actionMessage.text && (
+          <Box
+            sx={{
+              px: 1.25, py: 0.85, borderRadius: "10px",
+              bgcolor: actionMessage.type === "success" ? "#f0fdf4" : "#fef2f2",
+              color: actionMessage.type === "success" ? "#166534" : "#b91c1c",
+              border: `1px solid ${actionMessage.type === "success" ? "#bbf7d0" : "#fecaca"}`,
+              fontSize: "0.76rem", fontWeight: 600,
+            }}
+          >
+            {actionMessage.text}
+          </Box>
+        )}
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
           {filterBtns.map((btn) => (
             <Box
@@ -943,6 +1086,9 @@ const TeamAttendance = () => {
         </Box>
       </Box>
 
+      <Typography sx={{ fontSize: "0.72rem", color: "#94a3b8", mb: 0.5 }}>
+        {isTodayValue(selectedDate) ? "Auto-refresh is active for today" : "Viewing saved attendance for selected date"}
+      </Typography>
       <Typography sx={{ fontSize: "0.72rem", color: "#94a3b8", mb: 2 }}>
         Auto-refreshes every 60s · Last updated:{" "}
         {lastRefreshed.toLocaleTimeString("en-IN", {
@@ -972,6 +1118,73 @@ const TeamAttendance = () => {
           ))}
         </Box>
       )}
+
+      <Dialog
+        open={holidayDialogOpen}
+        onClose={() => !holidaySubmitting && setHolidayDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: "18px" } }}
+      >
+        <DialogTitle sx={{ fontWeight: 800, color: "#0f172a", pb: 1 }}>
+          Create Holiday
+        </DialogTitle>
+        <DialogContent sx={{ pt: "8px !important" }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Holiday Date"
+              type="date"
+              value={holidayDate}
+              onChange={(e) => setHolidayDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Reason"
+              placeholder="Example: Ram Navami, Office Closed, National Holiday"
+              value={holidayReason}
+              onChange={(e) => setHolidayReason(e.target.value)}
+              multiline
+              minRows={3}
+            />
+            <Box
+              sx={{
+                px: 1.25, py: 1, borderRadius: "12px",
+                bgcolor: "#faf5ff", border: "1px solid #e9d5ff",
+              }}
+            >
+              <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: "#7e22ce" }}>
+                This will mark the selected date as holiday for all scoped users.
+              </Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: "#6b21a8", mt: 0.4 }}>
+                Users who already punched in or punched out on that date will be skipped.
+              </Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button
+            onClick={() => setHolidayDialogOpen(false)}
+            disabled={holidaySubmitting}
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateHoliday}
+            disabled={holidaySubmitting}
+            startIcon={holidaySubmitting ? <CircularProgress size={14} color="inherit" /> : <Celebration />}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              borderRadius: "10px",
+              background: "linear-gradient(135deg, #9333ea, #7c3aed)",
+            }}
+          >
+            {holidaySubmitting ? "Saving..." : "Save Holiday"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

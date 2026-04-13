@@ -574,6 +574,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   const [autoVisitToast,   setAutoVisitToast]   = useState(null);
   const [dwellInfo,        setDwellInfo]        = useState(null);
   const [batteryInfo,      setBatteryInfo]      = useState({ percentage: null, isCharging: false, recordedAt: null });
+  const [batteryLockedFromPunch, setBatteryLockedFromPunch] = useState(false);
 
   const handleLocateMe = () => {
     setLocating(true);
@@ -605,6 +606,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
 
   useEffect(() => {
     setBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
+    setBatteryLockedFromPunch(false);
   }, [targetUserId]);
 
   const fetchPunchInStatus = useCallback(async () => {
@@ -638,6 +640,9 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
             isCharging: batterySnapshot.isCharging ?? false,
             recordedAt: batterySnapshot.recordedAt || null,
           });
+          setBatteryLockedFromPunch(true);
+        } else {
+          setBatteryLockedFromPunch(false);
         }
         if (out && att.punchOut?.time) {
           setPunchOutLocation({
@@ -653,6 +658,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
         setIsPunchedIn(false);
         setHasPunchedOut(false);
         setPunchInLocation(null);
+        setBatteryLockedFromPunch(false);
       }
     } catch (e) { console.warn("Punch-in status failed:", e.message); }
   }, [targetUserId, isAdminView]);
@@ -706,7 +712,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   }, [targetUserId]);
 
   const fetchLatestBattery = useCallback(async () => {
-    if (!targetUserId) return;
+    if (!targetUserId || batteryLockedFromPunch) return;
     try {
       const res = await apiFetch(`/battery/latest/${targetUserId}`);
       const data = res?.data || res?.result || res;
@@ -718,7 +724,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
         });
       }
     } catch {}
-  }, [targetUserId]);
+  }, [targetUserId, batteryLockedFromPunch]);
 
   const authUserId = authUser?._id || authUser?.id || authUser?.userId || null;
   const selectedMember = location.state || {};
