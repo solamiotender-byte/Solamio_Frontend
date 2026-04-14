@@ -308,6 +308,21 @@ try {
           const status = getDutyStatus(att, u);
           const punchInTime = att?.punchIn?.time ? formatTime(att.punchIn.time) : null;
           const punchOutTime = att?.punchOut?.time ? formatTime(att.punchOut.time) : null;
+          const punchBattery = att?.punchIn?.battery || att?.metadata?.batteryAtPunchIn || null;
+          const normalizedPunchBattery =
+            punchBattery?.percentage !== undefined && punchBattery?.percentage !== null
+              ? Number(punchBattery.percentage)
+              : null;
+          const latestBattery =
+            batteryMap[uid]?.percentage !== undefined && batteryMap[uid]?.percentage !== null
+              ? Number(batteryMap[uid].percentage)
+              : null;
+          const resolvedBatteryPercentage = Number.isFinite(latestBattery)
+            ? latestBattery
+            : (Number.isFinite(normalizedPunchBattery) ? normalizedPunchBattery : null);
+          const resolvedIsCharging = Number.isFinite(latestBattery)
+            ? (batteryMap[uid]?.isCharging ?? false)
+            : (punchBattery?.isCharging ?? false);
 
           return {
             id: uid,
@@ -331,8 +346,8 @@ try {
             punchInTime,
             punchOutTime,
             visits: visitCountMap[uid] || 0,
-            batteryPercentage: batteryMap[uid]?.percentage ?? null,
-            isCharging: batteryMap[uid]?.isCharging ?? false,
+            batteryPercentage: resolvedBatteryPercentage,
+            isCharging: resolvedIsCharging,
           };
         });
 

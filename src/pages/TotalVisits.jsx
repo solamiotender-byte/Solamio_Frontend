@@ -108,6 +108,7 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { TimePicker } from "@mui/x-date-pickers/TimePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import {
@@ -291,6 +292,49 @@ const formatTime = (timeString) => {
   return timeString;
 };
 
+const parseVisitTime = (timeString) => {
+  if (!timeString) return null;
+
+  const today = new Date();
+  const twelveHourMatch = String(timeString).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (twelveHourMatch) {
+    let hours = Number(twelveHourMatch[1]);
+    const minutes = Number(twelveHourMatch[2]);
+    const meridiem = twelveHourMatch[3].toUpperCase();
+    if (meridiem === "PM" && hours < 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    return new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      hours,
+      minutes,
+      0,
+      0
+    );
+  }
+
+  const twentyFourHourMatch = String(timeString).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (twentyFourHourMatch) {
+    return new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      Number(twentyFourHourMatch[1]),
+      Number(twentyFourHourMatch[2]),
+      0,
+      0
+    );
+  }
+
+  return null;
+};
+
+const formatVisitTimeForSave = (value) => {
+  if (!value || !isValid(value)) return "";
+  return format(value, "hh:mm a");
+};
+
 const formatRelativeTime = (dateString) => {
   if (!dateString) return "";
   try {
@@ -454,12 +498,14 @@ const MobileFilterDrawer = ({
                       ),
                       endAdornment: searchQuery && (
                         <InputAdornment position="end">
-                          <IconButton
-                            size="small"
-                            onClick={() => setSearchQuery("")}
-                          >
-                            <Close fontSize="small" />
-                          </IconButton>
+                          <Tooltip title="Clear Search">
+                            <IconButton
+                              size="small"
+                              onClick={() => setSearchQuery("")}
+                            >
+                              <Close fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </InputAdornment>
                       ),
                     }}
@@ -1637,7 +1683,7 @@ const EditVisitModal = React.memo(
     const [editForm, setEditForm] = useState({
       visitStatus: "Not Assigned",
       visitDate: null,
-      visitTime: "",
+      visitTime: null,
       visitLocation: "",
       status: "Visit",
       visitNotes: "",
@@ -1654,7 +1700,7 @@ const EditVisitModal = React.memo(
             visit.visitDate && isValid(parseISO(visit.visitDate))
               ? parseISO(visit.visitDate)
               : null,
-          visitTime: visit.visitTime || "",
+          visitTime: parseVisitTime(visit.visitTime),
           visitLocation: visit.visitLocation || "",
           status: visit.status || "Visit",
           visitNotes: visit.visitNotes || "",
@@ -1716,7 +1762,7 @@ const EditVisitModal = React.memo(
         const payload = {
           visitStatus: editForm.visitStatus,
           ...(editForm.visitDate && { visitDate: format(editForm.visitDate, "yyyy-MM-dd") }),
-          ...(editForm.visitTime && { visitTime: editForm.visitTime.trim() }),
+          ...(editForm.visitTime && { visitTime: formatVisitTimeForSave(editForm.visitTime) }),
           ...(editForm.visitLocation && { visitLocation: editForm.visitLocation.trim() }),
           status: editForm.status,
           ...(editForm.visitNotes && { visitNotes: editForm.visitNotes.trim() }),
@@ -1880,15 +1926,24 @@ const EditVisitModal = React.memo(
               }}
             />
 
-            <TextField
+            <TimePicker
               label="Visit Time"
               value={editForm.visitTime}
-              onChange={handleChange("visitTime")}
-              placeholder="HH:MM (e.g., 14:30)"
-              fullWidth
-              size="small"
-              error={!!validationErrors.visitTime}
-              helperText={validationErrors.visitTime}
+              onChange={(newValue) => {
+                setEditForm((prev) => ({ ...prev, visitTime: newValue }));
+                if (validationErrors.visitTime) {
+                  setValidationErrors((prev) => ({ ...prev, visitTime: "" }));
+                }
+              }}
+              ampm
+              slotProps={{
+                textField: {
+                  fullWidth: true,
+                  size: "small",
+                  error: !!validationErrors.visitTime,
+                  helperText: validationErrors.visitTime,
+                },
+              }}
             />
 
             <TextField
@@ -2877,12 +2932,14 @@ export default function TotalVisitsPage() {
                     ),
                     endAdornment: searchQuery && (
                       <InputAdornment position="end">
-                        <IconButton
-                          size="small"
-                          onClick={() => setSearchQuery("")}
-                        >
-                          <Close />
-                        </IconButton>
+                        <Tooltip title="Clear Search">
+                          <IconButton
+                            size="small"
+                            onClick={() => setSearchQuery("")}
+                          >
+                            <Close />
+                          </IconButton>
+                        </Tooltip>
                       </InputAdornment>
                     ),
                   }}
@@ -3358,20 +3415,24 @@ export default function TotalVisitsPage() {
                         </TableCell>
                         <TableCell>
                           <Stack direction="row" spacing={1}>
-                            <IconButton
-                              sx={{ background: "#4569ea", color: "#fff" }}
-                              size="small"
-                              onClick={() => handleViewClick(visit)}
-                            >
-                              <Visibility fontSize="small" />
-                            </IconButton>
-                            <IconButton
-                              sx={{ background: "#4569ea", color: "#fff" }}
-                              size="small"
-                              onClick={() => handleEditClick(visit)}
-                            >
-                              <Edit fontSize="small" />
-                            </IconButton>
+                            <Tooltip title="View Visit">
+                              <IconButton
+                                sx={{ background: "#4569ea", color: "#fff" }}
+                                size="small"
+                                onClick={() => handleViewClick(visit)}
+                              >
+                                <Visibility fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Edit Visit">
+                              <IconButton
+                                sx={{ background: "#4569ea", color: "#fff" }}
+                                size="small"
+                                onClick={() => handleEditClick(visit)}
+                              >
+                                <Edit fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -3472,35 +3533,37 @@ export default function TotalVisitsPage() {
       {/* Mobile FAB */}
       {isMobile && (
         <Zoom in={true}>
-          <Fab
-            color="primary"
-            aria-label="filter"
-            onClick={() => setMobileFilterOpen(true)}
-            sx={{
-              position: "fixed",
-              bottom: 80,
-              right: 16,
-              zIndex: 1000,
-              bgcolor: PRIMARY_COLOR,
-              "&:hover": { bgcolor: SECONDARY_COLOR },
-              boxShadow: `0 4px 12px ${alpha(PRIMARY_COLOR, 0.3)}`,
-            }}
-          >
-            <Badge
-              badgeContent={activeFilterCount}
-              color="error"
-              max={9}
+          <Tooltip title="Filters">
+            <Fab
+              color="primary"
+              aria-label="filter"
+              onClick={() => setMobileFilterOpen(true)}
               sx={{
-                "& .MuiBadge-badge": {
-                  fontSize: "0.6rem",
-                  minWidth: 16,
-                  height: 16,
-                },
+                position: "fixed",
+                bottom: 80,
+                right: 16,
+                zIndex: 1000,
+                bgcolor: PRIMARY_COLOR,
+                "&:hover": { bgcolor: SECONDARY_COLOR },
+                boxShadow: `0 4px 12px ${alpha(PRIMARY_COLOR, 0.3)}`,
               }}
             >
-              <FilterAlt />
-            </Badge>
-          </Fab>
+              <Badge
+                badgeContent={activeFilterCount}
+                color="error"
+                max={9}
+                sx={{
+                  "& .MuiBadge-badge": {
+                    fontSize: "0.6rem",
+                    minWidth: 16,
+                    height: 16,
+                  },
+                }}
+              >
+                <FilterAlt />
+              </Badge>
+            </Fab>
+          </Tooltip>
         </Zoom>
       )}
     </LocalizationProvider>

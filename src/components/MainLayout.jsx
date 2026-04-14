@@ -1,6 +1,6 @@
 // layouts/MainLayout.jsx
 import React, { useState, useEffect } from "react";
-import { Box, useTheme, useMediaQuery, Fab } from "@mui/material";
+import { Box, useTheme, useMediaQuery, Fab, Tooltip } from "@mui/material";
 import { Menu as MenuIcon } from "@mui/icons-material";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
@@ -149,25 +149,27 @@ const MainLayout = ({ children }) => {
 
       {/* Mobile FAB for quick navigation when drawer is closed */}
       {isMobile && !mobileOpen && (
-        <Fab
-          color="primary"
-          aria-label="menu"
-          onClick={toggleDrawer}
-          sx={{
-            position: "fixed",
-            bottom: 80,
-            right: 16,
-            zIndex: 1100,
-            display: { xs: "flex", sm: "none" },
-            bgcolor: "#4569ea",
-            "&:hover": {
-              bgcolor: "#3a5ac8",
-            },
-            boxShadow: "0 4px 12px rgba(69, 105, 234, 0.3)",
-          }}
-        >
-          <MenuIcon />
-        </Fab>
+        <Tooltip title="Open Menu" arrow>
+          <Fab
+            color="primary"
+            aria-label="menu"
+            onClick={toggleDrawer}
+            sx={{
+              position: "fixed",
+              bottom: 80,
+              right: 16,
+              zIndex: 1100,
+              display: { xs: "flex", sm: "none" },
+              bgcolor: "#4569ea",
+              "&:hover": {
+                bgcolor: "#3a5ac8",
+              },
+              boxShadow: "0 4px 12px rgba(69, 105, 234, 0.3)",
+            }}
+          >
+            <MenuIcon />
+          </Fab>
+        </Tooltip>
       )}
 
       {/* Overlay for mobile when drawer is open */}

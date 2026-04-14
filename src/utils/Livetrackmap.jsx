@@ -25,14 +25,19 @@ import { toast } from "../components/useToast.jsx";
 const API  = "https://vanurtech-solar-backend.onrender.com";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
-const MIN_MOVE_METRES = 20;
+const MIN_MOVE_METRES = 35;
 
 function getEffectiveMoveThreshold(currentAccuracy = 0, previousAccuracy = 0) {
+  const current = Number(currentAccuracy) || 0;
+  const previous = Number(previousAccuracy) || 0;
+  const maxAccuracy = Math.max(current, previous);
+
   return Math.min(
-    45,
+    90,
     Math.max(
       MIN_MOVE_METRES,
-      ((Number(currentAccuracy) || 0) + (Number(previousAccuracy) || 0)) * 0.35
+      (current + previous) * 0.75,
+      maxAccuracy * 1.2
     )
   );
 }
@@ -74,6 +79,20 @@ function calcFilteredKm(points) {
   return Math.round(total * 1000) / 1000;
 }
 
+function hasConfirmedMovement(points) {
+  if (!Array.isArray(points) || points.length < 2) return false;
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const distM = distMetres(prev.lat, prev.lng, curr.lat, curr.lng);
+    const minMoveRequired = getEffectiveMoveThreshold(curr.accuracy, prev.accuracy);
+    if (distM >= minMoveRequired) return true;
+  }
+
+  return false;
+}
+
 function distMetres(lat1, lng1, lat2, lng2) {
   return calcKm([{ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 }]) * 1000;
 }
@@ -108,7 +127,7 @@ export default function LiveTrackingMap({
 }) {
   const mapDivRef  = useRef(null);
   const gMapRef    = useRef(null);
-  const polyRef    = useRef(null);
+  const polyRef    = useRef({ casing: null, main: null });
   const startMkRef = useRef(null);
   const liveMkRef  = useRef(null);
   const dotsRef    = useRef([]);
@@ -419,35 +438,48 @@ useEffect(() => {
     const G   = window.google.maps;
     const map = gMapRef.current;
     const path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
+    const shouldDrawLine = points.length >= 2 && hasConfirmedMovement(points);
 
-    if (polyRef.current) {
-      polyRef.current.setPath(path);
-    } else if (points.length >= 2) {
-      polyRef.current = new G.Polyline({
-        path,
-        geodesic:      true,
-        strokeColor:   "#ef4444",
-        strokeOpacity: 0.9,
-        strokeWeight:  4,
-        map,
-        icons: [{
-          icon: {
-            path:        G.SymbolPath.FORWARD_CLOSED_ARROW,
-            scale:       3,
-            strokeColor: "#ef4444",
-            fillColor:   "#ef4444",
-            fillOpacity: 1,
-          },
-          offset: "50%",
-          repeat: "100px",
-        }],
-      });
+    if (shouldDrawLine) {
+      if (polyRef.current.casing && polyRef.current.main) {
+        polyRef.current.casing.setPath(path);
+        polyRef.current.main.setPath(path);
+      } else {
+        polyRef.current = {
+          casing: new G.Polyline({
+            path,
+            geodesic: true,
+            strokeColor: "#ffffff",
+            strokeOpacity: 0.95,
+            strokeWeight: 8,
+            map,
+            zIndex: 6,
+          }),
+          main: new G.Polyline({
+            path,
+            geodesic: true,
+            strokeColor: "#dc2626",
+            strokeOpacity: 0.92,
+            strokeWeight: 4,
+            map,
+            zIndex: 7,
+          }),
+        };
+      }
+    } else {
+      polyRef.current.casing?.setMap(null);
+      polyRef.current.main?.setMap(null);
+      polyRef.current = { casing: null, main: null };
     }
 
     dotsRef.current.forEach((d) => d.setMap(null));
     dotsRef.current = [];
     points.forEach((pt, i) => {
-      if (i === 0 || i === points.length - 1 || i % 4 !== 0) return;
+      if (shouldDrawLine) {
+        if (i === 0 || i === points.length - 1 || i % 6 !== 0) return;
+      } else if (i === points.length - 1) {
+        return;
+      }
       dotsRef.current.push(
         new G.Marker({
           position: { lat: pt.lat, lng: pt.lng },
@@ -455,9 +487,9 @@ useEffect(() => {
           zIndex: 5,
           icon: {
             path:         G.SymbolPath.CIRCLE,
-            scale:        5,
-            fillColor:    "#ef4444",
-            fillOpacity:  0.85,
+            scale:        3,
+            fillColor:    "#b91c1c",
+            fillOpacity:  0.8,
             strokeColor:  "#ffffff",
             strokeWeight: 1,
           },
@@ -492,7 +524,7 @@ useEffect(() => {
       }
     }
 
-    if (points.length >= 2 && !isLive && autoFit && !userAdjustedViewportRef.current) {
+    if (shouldDrawLine && !isLive && autoFit && !userAdjustedViewportRef.current) {
       const bounds = new G.LatLngBounds();
       points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
       withProgrammaticViewport(() => {
@@ -506,22 +538,74 @@ useEffect(() => {
     console.log(`[drawTrail] ${points.length} points — ${km.toFixed(3)} km`);
   }
 
+  function simplifyTrailPoints(points) {
+    if (!Array.isArray(points) || points.length <= 2) return points;
+
+    const simplified = [points[0]];
+
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = simplified[simplified.length - 1];
+      const curr = points[i];
+      const next = points[i + 1];
+
+      const stepFromPrev = distMetres(prev.lat, prev.lng, curr.lat, curr.lng);
+      const stepToNext = distMetres(curr.lat, curr.lng, next.lat, next.lng);
+      const directStep = distMetres(prev.lat, prev.lng, next.lat, next.lng);
+      const maxAccuracy = Math.max(
+        Number(prev.accuracy) || 0,
+        Number(curr.accuracy) || 0,
+        Number(next.accuracy) || 0
+      );
+      const stationaryThreshold = Math.max(30, Math.min(55, maxAccuracy * 0.9));
+
+      if (stepFromPrev < stationaryThreshold && stepToNext < stationaryThreshold) {
+        continue;
+      }
+
+      if (Math.abs((stepFromPrev + stepToNext) - directStep) < 8) {
+        continue;
+      }
+
+      simplified.push(curr);
+    }
+
+    simplified.push(points[points.length - 1]);
+    return simplified;
+  }
+
   function cleanPoints(raw) {
     const cleaned = [];
     for (const p of raw) {
-      if (!p.lat || !p.lng) continue;
-        if (p.accuracy && p.accuracy > 80) continue;
-        if (cleaned.length > 0) {
-          const prev   = cleaned[cleaned.length - 1];
-          const distKm = calcKm([prev, p]);
-          const distM = distKm * 1000;
-          const requiredMove = getEffectiveMoveThreshold(p.accuracy, prev.accuracy);
-          if (distM < requiredMove) continue;
-          if (distKm > 50) continue;
-        }
-      cleaned.push({ lat: p.lat, lng: p.lng, accuracy: p.accuracy });
+      const lat = Number(p.lat);
+      const lng = Number(p.lng);
+      const accuracy = Number(p.accuracy ?? 0);
+      const distanceFromPrevious = Number(p.distanceFromPrevious ?? 0);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      if (accuracy && accuracy > 60) continue;
+
+      if (cleaned.length === 0) {
+        cleaned.push({ lat, lng, accuracy, distanceFromPrevious });
+        continue;
+      }
+
+      const prev = cleaned[cleaned.length - 1];
+      const distM = distMetres(prev.lat, prev.lng, lat, lng);
+      const requiredMove = Math.max(
+        getEffectiveMoveThreshold(accuracy, prev.accuracy),
+        distanceFromPrevious > 0 ? 28 : 40
+      );
+      const gpsNoiseRadius = Math.max(35, Math.max(accuracy, prev.accuracy || 0) * 1.1);
+
+      if (distanceFromPrevious <= 0 && distM < 30) continue;
+      if (distM < requiredMove) continue;
+      if (distM < gpsNoiseRadius) continue;
+      if (distM > 2000) continue;
+
+      cleaned.push({ lat, lng, accuracy, distanceFromPrevious });
     }
-    return cleaned;
+
+    return simplifyTrailPoints(cleaned);
   }
 
   const fetchTotalKm = useCallback(async () => {
@@ -587,9 +671,10 @@ useEffect(() => {
             if (!alreadyIn) merged.push(lp);
           }
         }
-        allPtsRef.current = merged;
-        drawTrail(merged, { autoFit, autoPanLive: false });
-        console.log(`[AdminMap] ✅ Trail: ${merged.length} points — ${calcKm(merged).toFixed(3)} km`);
+        const finalTrail = cleanPoints(merged);
+        allPtsRef.current = finalTrail;
+        drawTrail(finalTrail, { autoFit, autoPanLive: false });
+        console.log(`[AdminMap] ✅ Trail: ${finalTrail.length} points — ${calcKm(finalTrail).toFixed(3)} km`);
       } else {
         if (allPtsRef.current.length > 0) drawTrail(allPtsRef.current, { autoFit, autoPanLive: false });
         console.warn(`[AdminMap] ⚠️ No DB points — raw:${raw.length}`);
@@ -603,7 +688,9 @@ useEffect(() => {
 
   useEffect(() => {
     // ✅ Clear old trail and re-fetch whenever selectedDate changes
-    if (polyRef.current) { polyRef.current.setMap(null); polyRef.current = null; }
+    polyRef.current.casing?.setMap(null);
+    polyRef.current.main?.setMap(null);
+    polyRef.current = { casing: null, main: null };
     dotsRef.current.forEach(d => d.setMap(null));
     dotsRef.current = [];
     if (liveMkRef.current) { liveMkRef.current.setMap(null); liveMkRef.current = null; }
@@ -642,8 +729,9 @@ useEffect(() => {
             );
             if (!alreadyIn) merged.push(np);
             }
-            allPtsRef.current = merged;
-            drawTrail(merged, { autoFit: false, autoPanLive: false });
+            const finalTrail = cleanPoints(merged);
+            allPtsRef.current = finalTrail;
+            drawTrail(finalTrail, { autoFit: false, autoPanLive: false });
             const last = allPts[allPts.length - 1];
             if (last) setAccuracy(last.accuracy);
             if (typeof onPointsChange === "function") onPointsChange(allPts);
@@ -699,9 +787,10 @@ useEffect(() => {
             const moved = distMetres(lastTrailPt.lat, lastTrailPt.lng, lat, lng);
             const minMoveRequired = getEffectiveMoveThreshold(acc, lastTrailPt.accuracy);
             if (moved >= minMoveRequired) {
-              const merged = [...allPtsRef.current, { lat, lng }];
-              allPtsRef.current = merged;
-              drawTrail(merged, { autoFit: false, autoPanLive: false });
+              const merged = [...allPtsRef.current, { lat, lng, accuracy: acc }];
+              const finalTrail = cleanPoints(merged);
+              allPtsRef.current = finalTrail;
+              drawTrail(finalTrail, { autoFit: false, autoPanLive: false });
               console.log(`[LiveDot] ✅ ${moved.toFixed(0)} m real movement — trail updated`);
             } else {
               console.log(`[LiveDot] ⏭ ${moved.toFixed(0)} m jitter — dot moved, trail unchanged`);
@@ -762,9 +851,10 @@ useEffect(() => {
           return;
         }
       }
-      const merged = [...allPtsRef.current, { lat: data.lat, lng: data.lng }];
-      allPtsRef.current = merged;
-      drawTrail(merged, { autoFit: false, autoPanLive: false });
+      const merged = [...allPtsRef.current, { lat: data.lat, lng: data.lng, accuracy: data.accuracy }];
+      const finalTrail = cleanPoints(merged);
+      allPtsRef.current = finalTrail;
+      drawTrail(finalTrail, { autoFit: false, autoPanLive: false });
     };
 
     socket.on("location:ack",         onAck);

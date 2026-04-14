@@ -35,6 +35,7 @@ import {
   PendingActions,
   Insights,
   AccountTree,
+  Notifications,
   Logout,
   ChevronLeft,
   ChevronRight,
@@ -193,6 +194,12 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
         icon: <Insights />,
         path: "/reports",
         roles: ["Head_office", "ZSM", "ASM"],
+      },
+      {
+        text: "Notifications",
+        icon: <Notifications />,
+        path: "/notifications",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
     ],
     [user?.role],
@@ -421,19 +428,21 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
           </Typography>
         </Box>
       </Box>
-      <IconButton
-        onClick={onClose}
-        size="small"
-        sx={{
-          color: TEXT_COLOR,
-          bgcolor: "rgba(255,255,255,0.12)",
-          "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
-          width: 34,
-          height: 34,
-        }}
-      >
-        <CloseIcon fontSize="small" />
-      </IconButton>
+      <Tooltip title="Close Sidebar" arrow>
+        <IconButton
+          onClick={onClose}
+          size="small"
+          sx={{
+            color: TEXT_COLOR,
+            bgcolor: "rgba(255,255,255,0.12)",
+            "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+            width: 34,
+            height: 34,
+          }}
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 
@@ -657,22 +666,24 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
           gap: 1,
         }}
       >
-        <IconButton
-          edge="start"
-          onClick={onMenuClick}
-          sx={{
-            color: "#fff",
-            mr: 0.5,
-            bgcolor: "rgba(255,255,255,0.1)",
-            borderRadius: "10px",
-            width: 40,
-            height: 40,
-            "&:hover": { bgcolor: "rgba(255,255,255,0.2)" },
-          }}
-          size="medium"
-        >
-          <MenuIcon />
-        </IconButton>
+        <Tooltip title="Open Menu" arrow>
+          <IconButton
+            edge="start"
+            onClick={onMenuClick}
+            sx={{
+              color: "#fff",
+              mr: 0.5,
+              bgcolor: "rgba(255,255,255,0.1)",
+              borderRadius: "10px",
+              width: 40,
+              height: 40,
+              "&:hover": { bgcolor: "rgba(255,255,255,0.2)" },
+            }}
+            size="medium"
+          >
+            <MenuIcon />
+          </IconButton>
+        </Tooltip>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1 }}>
           <Box

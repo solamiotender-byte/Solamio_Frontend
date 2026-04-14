@@ -300,12 +300,14 @@ const MobileFilterDrawer = ({
                       ),
                       endAdornment: searchQuery && (
                         <InputAdornment position="end">
-                          <IconButton
-                            size="small"
-                            onClick={() => setSearchQuery("")}
-                          >
-                            <Close fontSize="small" />
-                          </IconButton>
+                          <Tooltip title="Clear Search">
+                            <IconButton
+                              size="small"
+                              onClick={() => setSearchQuery("")}
+                            >
+                              <Close fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </InputAdornment>
                       ),
                     }}
@@ -654,6 +656,11 @@ const MobileStageCard = ({ stage, config, isSelected, onClick, count, percentage
 const MobileLeadCard = ({ lead, stageColor, onView, index }) => {
   const [expanded, setExpanded] = useState(false);
   const initials = `${lead.firstName?.[0] || ''}${lead.lastName?.[0] || ''}`;
+  const assignedTo = lead.assignedUser
+    ? `${lead.assignedUser.firstName || ""} ${lead.assignedUser.lastName || ""}`.trim()
+    : lead.assignedManager
+      ? `${lead.assignedManager.firstName || ""} ${lead.assignedManager.lastName || ""}`.trim()
+      : "Unassigned";
 
   return (
     <Fade in={true} timeout={500 + index * 50}>
@@ -741,6 +748,12 @@ const MobileLeadCard = ({ lead, stageColor, onView, index }) => {
               />
               <Typography variant="body2" fontWeight={500}>
                 {new Date(lead.createdAt).toLocaleDateString()}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Person sx={{ fontSize: 14, color: alpha(stageColor, 0.6) }} />
+              <Typography variant="body2" fontWeight={500}>
+                {assignedTo}
               </Typography>
             </Stack>
           </Box>
@@ -1326,9 +1339,11 @@ export default function LeadFunnelDashboard() {
               ),
               endAdornment: searchQuery && (
                 <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearchQuery("")}>
-                    <Close />
-                  </IconButton>
+                  <Tooltip title="Clear Search">
+                    <IconButton size="small" onClick={() => setSearchQuery("")}>
+                      <Close />
+                    </IconButton>
+                  </Tooltip>
                 </InputAdornment>
               ),
             }}
@@ -1782,35 +1797,37 @@ export default function LeadFunnelDashboard() {
       {/* Mobile FAB */}
       {isMobile && (
         <Zoom in={true}>
-          <Fab
-            color="primary"
-            aria-label="filter"
-            onClick={() => setMobileFilterOpen(true)}
-            sx={{
-              position: "fixed",
-              bottom: 80,
-              right: 16,
-              zIndex: 1000,
-              bgcolor: PRIMARY_COLOR,
-              "&:hover": { bgcolor: SECONDARY_COLOR },
-              boxShadow: `0 4px 12px ${alpha(PRIMARY_COLOR, 0.3)}`,
-            }}
-          >
-            <Badge
-              badgeContent={activeFilterCount}
-              color="error"
-              max={9}
+          <Tooltip title="Filters">
+            <Fab
+              color="primary"
+              aria-label="filter"
+              onClick={() => setMobileFilterOpen(true)}
               sx={{
-                "& .MuiBadge-badge": {
-                  fontSize: "0.6rem",
-                  minWidth: 16,
-                  height: 16,
-                },
+                position: "fixed",
+                bottom: 80,
+                right: 16,
+                zIndex: 1000,
+                bgcolor: PRIMARY_COLOR,
+                "&:hover": { bgcolor: SECONDARY_COLOR },
+                boxShadow: `0 4px 12px ${alpha(PRIMARY_COLOR, 0.3)}`,
               }}
             >
-              <FilterAlt />
-            </Badge>
-          </Fab>
+              <Badge
+                badgeContent={activeFilterCount}
+                color="error"
+                max={9}
+                sx={{
+                  "& .MuiBadge-badge": {
+                    fontSize: "0.6rem",
+                    minWidth: 16,
+                    height: 16,
+                  },
+                }}
+              >
+                <FilterAlt />
+              </Badge>
+            </Fab>
+          </Tooltip>
         </Zoom>
       )}
 
@@ -1903,7 +1920,13 @@ const StageItem = ({ stage, config, isSelected, onClick }) => {
 const LeadCards = ({ leads, stageColor, onView }) => {
   return (
     <Grid container spacing={3}>
-      {leads.map((lead) => (
+      {leads.map((lead) => {
+        const assignedTo = lead.assignedUser
+          ? `${lead.assignedUser.firstName || ""} ${lead.assignedUser.lastName || ""}`.trim()
+          : lead.assignedManager
+            ? `${lead.assignedManager.firstName || ""} ${lead.assignedManager.lastName || ""}`.trim()
+            : "Unassigned";
+        return (
         <Grid item xs={12} sm={6} lg={4} key={lead._id}>
           <Card
             sx={{
@@ -1950,6 +1973,10 @@ const LeadCards = ({ leads, stageColor, onView }) => {
                     Added {new Date(lead.createdAt).toLocaleDateString()}
                   </Typography>
                 </Box>
+                <Box display="flex" alignItems="center" gap={1}>
+                  <Person fontSize="small" sx={{ color: "text.secondary" }} />
+                  <Typography variant="body2">{assignedTo}</Typography>
+                </Box>
               </Stack>
 
               <Button
@@ -1972,7 +1999,8 @@ const LeadCards = ({ leads, stageColor, onView }) => {
             </CardContent>
           </Card>
         </Grid>
-      ))}
+        );
+      })}
     </Grid>
   );
 };
@@ -1981,7 +2009,13 @@ const LeadCards = ({ leads, stageColor, onView }) => {
 const LeadList = ({ leads, stageColor, onView }) => {
   return (
     <Stack spacing={2}>
-      {leads.map((lead) => (
+      {leads.map((lead) => {
+        const assignedTo = lead.assignedUser
+          ? `${lead.assignedUser.firstName || ""} ${lead.assignedUser.lastName || ""}`.trim()
+          : lead.assignedManager
+            ? `${lead.assignedManager.firstName || ""} ${lead.assignedManager.lastName || ""}`.trim()
+            : "Unassigned";
+        return (
         <Paper
           key={lead._id}
           sx={{
@@ -2007,6 +2041,9 @@ const LeadList = ({ leads, stageColor, onView }) => {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {lead.email} • {lead.phone}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Assigned To: {assignedTo}
             </Typography>
           </Box>
 
@@ -2037,7 +2074,8 @@ const LeadList = ({ leads, stageColor, onView }) => {
             </Button>
           </Box>
         </Paper>
-      ))}
+        );
+      })}
     </Stack>
   );
 };
@@ -2051,6 +2089,7 @@ const LeadTable = ({ leads, stageColor, onView }) => {
           <TableRow>
             <TableCell sx={{ fontWeight: 600 }}>Lead</TableCell>
             <TableCell sx={{ fontWeight: 600 }}>Contact</TableCell>
+            <TableCell sx={{ fontWeight: 600 }}>Assigned To</TableCell>
             <TableCell sx={{ fontWeight: 600 }}>Date Added</TableCell>
             <TableCell sx={{ fontWeight: 600 }} align="right">
               Actions
@@ -2088,6 +2127,24 @@ const LeadTable = ({ leads, stageColor, onView }) => {
               </TableCell>
               <TableCell>
                 <Typography variant="body2">{lead.phone}</Typography>
+              </TableCell>
+              <TableCell>
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>
+                    {lead.assignedUser
+                      ? `${lead.assignedUser.firstName || ""} ${lead.assignedUser.lastName || ""}`.trim()
+                      : lead.assignedManager
+                        ? `${lead.assignedManager.firstName || ""} ${lead.assignedManager.lastName || ""}`.trim()
+                        : "Unassigned"}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {lead.assignedUser
+                      ? lead.assignedUser.role || "Assigned User"
+                      : lead.assignedManager
+                        ? lead.assignedManager.role || "Manager"
+                        : "No assignee"}
+                  </Typography>
+                </Box>
               </TableCell>
               <TableCell>
                 <Typography variant="body2">

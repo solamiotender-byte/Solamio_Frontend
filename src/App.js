@@ -34,6 +34,7 @@ import VisitDetails from "./pages/AddVisit";
 import TeamTracking from "./pages/TeamTracking";
 import MemberVisitHistory from "./pages/Membervisithistory";
 import TeamAttendance from "./pages/TeamAttendance";
+import Notifications from "./pages/Notifications";
 
 const theme = createTheme({
   palette: {
@@ -149,6 +150,7 @@ function App() {
 
                         <Route path="team-tracking" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><TeamTracking /></ProtectedRoute>} />
                        <Route path="member-history/:userId" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><MemberVisitHistory /></ProtectedRoute>} />
+                        <Route path="notifications" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><Notifications /></ProtectedRoute>} />
                         <Route path="all-leads" element={<ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}><LeadOverview /></ProtectedRoute>} />
                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
                       </Routes>

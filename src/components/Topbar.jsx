@@ -19,6 +19,7 @@ import {
   SwipeableDrawer,
   Button,
   Paper,
+  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -34,6 +35,14 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from "../contexts/AuthContext";
+
+const API = "https://vanurtech-solar-backend.onrender.com/api/v1";
+
+const getToken = () =>
+  localStorage.getItem("token") ||
+  localStorage.getItem("authToken") ||
+  localStorage.getItem("accessToken") ||
+  "";
 
 const Topbar = ({ 
   toggleDrawer, 
@@ -55,47 +64,50 @@ const Topbar = ({
   const { user, logout } = useAuth()
   //console.log("users11...", user)
 
-  // Mock notifications
-  useEffect(() => {
-    const mockNotifications = [
-      {
-        id: 1,
-        title: "New Lead Assigned",
-        message: "You have been assigned 3 new leads from Bangalore region",
-        time: "5 min ago",
-        read: false,
-        type: "lead",
-      },
-      {
-        id: 2,
-        title: "Meeting Reminder",
-        message: "Team meeting at 3:00 PM today",
-        time: "1 hour ago",
-        read: false,
-        type: "meeting",
-      },
-      {
-        id: 3,
-        title: "Loan Approved",
-        message: "Customer loan application #1234 has been approved",
-        time: "2 hours ago",
-        read: true,
-        type: "loan",
-      },
-      {
-        id: 4,
-        title: "Visit Completed",
-        message: "Daily visit target achieved for today",
-        time: "3 hours ago",
-        read: true,
-        type: "visit",
-      },
-    ];
-    setNotifications(mockNotifications);
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const res = await fetch(`${API}/notifications?limit=8`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) return;
+      const payload = await res.json();
+      const data = payload?.data || payload?.result || {};
+      const list = data?.notifications || [];
+
+      setNotifications(
+        list.map((item) => ({
+          id: item._id || item.id,
+          title: item.title,
+          message: item.message,
+          time: item.createdAt ? new Date(item.createdAt).toLocaleString("en-IN") : "Just now",
+          read: Boolean(item.read),
+          type: item.type || "general",
+        }))
+      );
+    } catch (error) {
+      console.error("Notification fetch failed:", error.message);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   const handleProfileMenu = useCallback((event) => setAnchorEl(event.currentTarget), []);
   const handleNotificationMenu = useCallback((event) => setNotificationAnchor(event.currentTarget), []);
+  const handleNotificationCenter = useCallback(() => {
+    setNotificationAnchor(null);
+    navigate('/notifications');
+  }, [navigate]);
   
   const handleClose = useCallback(() => {
     setAnchorEl(null);
@@ -127,14 +139,35 @@ const Topbar = ({
   }, [navigate, searchQuery, isMobile]);
 
   const handleMarkAsRead = useCallback(async (notificationId) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId ? { ...notif, read: true } : notif
-      )
-    );
+    try {
+      const token = getToken();
+      await fetch(`${API}/notifications/${notificationId}/read`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setNotifications(prev => 
+        prev.map(notif => 
+          notif.id === notificationId ? { ...notif, read: true } : notif
+        )
+      );
+    } catch (error) {
+      console.error("Mark notification read failed:", error.message);
+    }
   }, []);
 
   const handleMarkAllAsRead = useCallback(() => {
+    const token = getToken();
+    fetch(`${API}/notifications/read-all`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch((error) => console.error("Mark all read failed:", error.message));
+
     setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
   }, []);
 
@@ -198,9 +231,11 @@ const Topbar = ({
     >
       <Box sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <IconButton onClick={() => setMobileSearchOpen(false)}>
-            <ArrowBackIcon />
-          </IconButton>
+          <Tooltip title="Back" arrow>
+            <IconButton onClick={() => setMobileSearchOpen(false)}>
+              <ArrowBackIcon />
+            </IconButton>
+          </Tooltip>
           <Typography variant="h6" fontWeight={600}>Search</Typography>
         </Box>
         <Paper
@@ -225,9 +260,11 @@ const Topbar = ({
             sx={{ fontSize: '0.95rem' }}
           />
           {searchQuery && (
-            <IconButton size="small" onClick={() => setSearchQuery('')}>
-              <CloseIcon fontSize="small" />
-            </IconButton>
+            <Tooltip title="Clear Search" arrow>
+              <IconButton size="small" onClick={() => setSearchQuery('')}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           )}
         </Paper>
         
@@ -278,15 +315,17 @@ const Topbar = ({
           {/* Left Section */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 } }}>
             {(isMobile || isTablet) && (
-              <IconButton 
-                onClick={toggleDrawer} 
-                sx={{ 
-                  color: '#4569ea',
-                  '&:hover': { bgcolor: alpha('#4569ea', 0.1) },
-                }}
-              >
-                <MenuIcon />
-              </IconButton>
+              <Tooltip title="Menu" arrow>
+                <IconButton 
+                  onClick={toggleDrawer} 
+                  sx={{ 
+                    color: '#4569ea',
+                    '&:hover': { bgcolor: alpha('#4569ea', 0.1) },
+                  }}
+                >
+                  <MenuIcon />
+                </IconButton>
+              </Tooltip>
             )}
             
             {/* Search Bar - Hidden on mobile */}
@@ -330,63 +369,83 @@ const Topbar = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
             {/* Mobile Search Icon */}
             {isMobile && (
-              <IconButton
-                sx={{
-                  color: '#666',
-                  '&:hover': { bgcolor: alpha('#4569ea', 0.05) },
-                }}
-                onClick={() => setMobileSearchOpen(true)}
-              >
-                <SearchIcon />
-              </IconButton>
+              <Tooltip title="Search" arrow>
+                <IconButton
+                  sx={{
+                    color: '#666',
+                    '&:hover': { bgcolor: alpha('#4569ea', 0.05) },
+                  }}
+                  onClick={() => setMobileSearchOpen(true)}
+                >
+                  <SearchIcon />
+                </IconButton>
+              </Tooltip>
             )}
 
-            {/* User Profile */}
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                cursor: 'pointer',
-                p: 0.5,
-                borderRadius: '8px',
-                '&:hover': { bgcolor: alpha('#4569ea', 0.05) },
-              }}
-              onClick={handleProfileMenu}
-            >
-              <Avatar
-                src={user?.avatar}
+            <Tooltip title="Notifications" arrow>
+              <IconButton
+                onClick={handleNotificationMenu}
                 sx={{
-                  bgcolor: user?.avatar ? 'transparent' : '#4569ea',
-                  width: { xs: 32, sm: 36 },
-                  height: { xs: 32, sm: 36 },
-                  fontSize: { xs: '0.8rem', sm: '0.9rem' },
-                  fontWeight: 600,
-                  color: '#ffffff',
+                  color: '#4569ea',
+                  border: '1px solid #e2e8f0',
+                  bgcolor: '#ffffff',
+                  '&:hover': { bgcolor: alpha('#4569ea', 0.06) },
                 }}
               >
-                {!user?.avatar && userInitials}
-              </Avatar>
-              {!isMobile && (
-                <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
-                  <Typography 
-                    fontSize="0.9rem"
-                    fontWeight={500}
-                    color="#333333"
-                    sx={{ lineHeight: 1.2 }}
-                  >
-                    {displayName}
-                  </Typography>
-                  <Typography 
-                    fontSize="0.75rem" 
-                    color="#666666"
-                    sx={{ lineHeight: 1.2 }}
-                  >
-                    {userRole}
-                  </Typography>
-                </Box>
-              )}
-            </Box>
+                <Badge badgeContent={unreadCount} color="error" overlap="circular">
+                  <NotificationsIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+
+            {/* User Profile */}
+            <Tooltip title="Profile" arrow>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  cursor: 'pointer',
+                  p: 0.5,
+                  borderRadius: '8px',
+                  '&:hover': { bgcolor: alpha('#4569ea', 0.05) },
+                }}
+                onClick={handleProfileMenu}
+              >
+                <Avatar
+                  src={user?.avatar}
+                  sx={{
+                    bgcolor: user?.avatar ? 'transparent' : '#4569ea',
+                    width: { xs: 32, sm: 36 },
+                    height: { xs: 32, sm: 36 },
+                    fontSize: { xs: '0.8rem', sm: '0.9rem' },
+                    fontWeight: 600,
+                    color: '#ffffff',
+                  }}
+                >
+                  {!user?.avatar && userInitials}
+                </Avatar>
+                {!isMobile && (
+                  <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+                    <Typography 
+                      fontSize="0.9rem"
+                      fontWeight={500}
+                      color="#333333"
+                      sx={{ lineHeight: 1.2 }}
+                    >
+                      {displayName}
+                    </Typography>
+                    <Typography 
+                      fontSize="0.75rem" 
+                      color="#666666"
+                      sx={{ lineHeight: 1.2 }}
+                    >
+                      {userRole}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            </Tooltip>
           </Box>
         </Toolbar>
 
@@ -475,6 +534,102 @@ const Topbar = ({
               primaryTypographyProps={{ fontSize: '0.9rem' }}
             />
           </MenuItem>
+        </Box>
+      </Menu>
+
+      <Menu
+        anchorEl={notificationAnchor}
+        open={Boolean(notificationAnchor)}
+        onClose={handleClose}
+        PaperProps={{
+          sx: {
+            width: { xs: 'calc(100vw - 24px)', sm: 360 },
+            maxWidth: 360,
+            mt: 1,
+            borderRadius: 3,
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.14)',
+            overflow: 'hidden',
+          }
+        }}
+        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+      >
+        <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box>
+            <Typography fontWeight={700} fontSize="0.95rem" color="#0f172a">
+              Notifications
+            </Typography>
+            <Typography fontSize="0.76rem" color="#64748b">
+              {unreadCount > 0 ? `${unreadCount} unread updates` : 'All caught up'}
+            </Typography>
+          </Box>
+          {unreadCount > 0 && (
+            <Button size="small" onClick={handleMarkAllAsRead} sx={{ color: '#4569ea', fontWeight: 700 }}>
+              Mark all read
+            </Button>
+          )}
+        </Box>
+        <Divider />
+        <Box sx={{ maxHeight: 360, overflowY: 'auto' }}>
+          {notifications.length === 0 ? (
+            <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+              <NotificationsIcon sx={{ color: '#cbd5e1', fontSize: 28, mb: 1 }} />
+              <Typography fontSize="0.88rem" fontWeight={600} color="#334155">
+                No notifications yet
+              </Typography>
+              <Typography fontSize="0.78rem" color="#94a3b8">
+                New alerts will appear here.
+              </Typography>
+            </Box>
+          ) : (
+            notifications.map((notification) => (
+              <MenuItem
+                key={notification.id}
+                onClick={() => handleMarkAsRead(notification.id)}
+                sx={{
+                  alignItems: 'flex-start',
+                  gap: 1.25,
+                  px: 2,
+                  py: 1.5,
+                  whiteSpace: 'normal',
+                  bgcolor: notification.read ? '#ffffff' : alpha('#4569ea', 0.045),
+                  borderLeft: notification.read ? '3px solid transparent' : '3px solid #4569ea',
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 0, mt: 0.35, color: notification.read ? '#94a3b8' : '#4569ea' }}>
+                  <NotificationsIcon fontSize="small" />
+                </ListItemIcon>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography fontSize="0.85rem" fontWeight={700} color="#0f172a" sx={{ mb: 0.25 }}>
+                    {notification.title}
+                  </Typography>
+                  <Typography fontSize="0.78rem" color="#475569" sx={{ lineHeight: 1.5 }}>
+                    {notification.message}
+                  </Typography>
+                  <Typography fontSize="0.72rem" color="#94a3b8" sx={{ mt: 0.6 }}>
+                    {notification.time}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            ))
+          )}
+        </Box>
+        <Divider />
+        <Box sx={{ p: 1.25 }}>
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={handleNotificationCenter}
+            sx={{
+              bgcolor: '#4569ea',
+              borderRadius: 2.5,
+              fontWeight: 700,
+              '&:hover': { bgcolor: '#3a5ac8' },
+            }}
+          >
+            View All Notifications
+          </Button>
         </Box>
       </Menu>
 

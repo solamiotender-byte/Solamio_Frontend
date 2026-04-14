@@ -2874,7 +2874,7 @@ const UserManagement = () => {
                 ? "Manage your team members"
                 : userRole === "ZSM"
                 ? "Manage ASM and TEAM members in your zone"
-                : "Manage all users in the system"}
+                : "Manage users in your head office only"}
             </Typography>
           </Box>
 

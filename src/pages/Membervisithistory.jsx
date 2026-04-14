@@ -573,8 +573,8 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   const [gpsDistance,      setGpsDistance]      = useState(null);
   const [autoVisitToast,   setAutoVisitToast]   = useState(null);
   const [dwellInfo,        setDwellInfo]        = useState(null);
-  const [batteryInfo,      setBatteryInfo]      = useState({ percentage: null, isCharging: false, recordedAt: null });
-  const [batteryLockedFromPunch, setBatteryLockedFromPunch] = useState(false);
+  const [liveBatteryInfo,  setLiveBatteryInfo]  = useState({ percentage: null, isCharging: false, recordedAt: null });
+  const [punchBatteryInfo, setPunchBatteryInfo] = useState({ percentage: null, isCharging: false, recordedAt: null });
 
   const handleLocateMe = () => {
     setLocating(true);
@@ -605,8 +605,8 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   useEffect(() => { return () => { if (isCurrentlyTracking()) stopTracking(); }; }, []);
 
   useEffect(() => {
-    setBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
-    setBatteryLockedFromPunch(false);
+    setLiveBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
+    setPunchBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
   }, [targetUserId]);
 
   const fetchPunchInStatus = useCallback(async () => {
@@ -634,16 +634,15 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
           address: att.punchIn?.address || null,
           time:    att.punchIn?.time    || null,
         });
-        if (batterySnapshot) {
-          setBatteryInfo({
-            percentage: batterySnapshot.percentage ?? null,
-            isCharging: batterySnapshot.isCharging ?? false,
-            recordedAt: batterySnapshot.recordedAt || null,
-          });
-          setBatteryLockedFromPunch(true);
-        } else {
-          setBatteryLockedFromPunch(false);
-        }
+        const normalizedPercentage =
+          batterySnapshot?.percentage !== undefined && batterySnapshot?.percentage !== null
+            ? Number(batterySnapshot.percentage)
+            : null;
+        setPunchBatteryInfo({
+          percentage: Number.isFinite(normalizedPercentage) ? normalizedPercentage : null,
+          isCharging: batterySnapshot?.isCharging ?? false,
+          recordedAt: batterySnapshot?.recordedAt || att.punchIn?.time || null,
+        });
         if (out && att.punchOut?.time) {
           setPunchOutLocation({
             lat:     att.punchOut?.location?.lat  || att.punchOut?.location?.latitude  || null,
@@ -658,7 +657,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
         setIsPunchedIn(false);
         setHasPunchedOut(false);
         setPunchInLocation(null);
-        setBatteryLockedFromPunch(false);
+        setPunchBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
       }
     } catch (e) { console.warn("Punch-in status failed:", e.message); }
   }, [targetUserId, isAdminView]);
@@ -712,19 +711,23 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   }, [targetUserId]);
 
   const fetchLatestBattery = useCallback(async () => {
-    if (!targetUserId || batteryLockedFromPunch) return;
+    if (!targetUserId) return;
     try {
       const res = await apiFetch(`/battery/latest/${targetUserId}`);
       const data = res?.data || res?.result || res;
       if (data?.percentage !== undefined) {
-        setBatteryInfo({
-          percentage: data.percentage ?? null,
+        const normalizedPercentage =
+          data?.percentage !== undefined && data?.percentage !== null
+            ? Number(data.percentage)
+            : null;
+        setLiveBatteryInfo({
+          percentage: Number.isFinite(normalizedPercentage) ? normalizedPercentage : null,
           isCharging: data.isCharging ?? false,
           recordedAt: data.createdAt || data.recordedAt || null,
         });
       }
     } catch {}
-  }, [targetUserId, batteryLockedFromPunch]);
+  }, [targetUserId]);
 
   const authUserId = authUser?._id || authUser?.id || authUser?.userId || null;
   const selectedMember = location.state || {};
@@ -799,7 +802,12 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   // ── Visits sorted oldest → newest for A→B→C display ──────────────────────
   // API returns newest first — reverse for timeline display
   const sortedVisits = [...visibleVisits].reverse();
-  const batteryChip = getBatteryChipStyle(batteryInfo.percentage);
+  const currentBatteryInfo = liveBatteryInfo.percentage !== null ? liveBatteryInfo : punchBatteryInfo;
+  const timelineBatteryInfo = punchBatteryInfo.percentage !== null ? punchBatteryInfo : liveBatteryInfo;
+  const currentBatteryChip = getBatteryChipStyle(currentBatteryInfo.percentage);
+  const timelineBatteryChip = getBatteryChipStyle(timelineBatteryInfo.percentage);
+  const batteryInfo = currentBatteryInfo;
+  const batteryChip = currentBatteryChip;
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f4f6fb" }}>
@@ -1168,12 +1176,12 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                           <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched In</Typography>
                           {punchInLocation?.time && <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchInLocation.time)}</Typography>}
                         </Box>
-                        {batteryInfo.percentage !== null && (
+                        {timelineBatteryInfo.percentage !== null && (
                           <Box sx={{ mb: 0.8 }}>
                             <Chip
                               size="small"
-                              label={`${batteryChip.label}${batteryInfo.isCharging ? " • Charging" : ""}`}
-                              sx={{ bgcolor: batteryChip.bg, color: batteryChip.color, fontWeight: 700, border: `1px solid ${batteryChip.border}`, height: 24 }}
+                              label={`${timelineBatteryChip.label}${timelineBatteryInfo.isCharging ? " • Charging" : ""}`}
+                              sx={{ bgcolor: timelineBatteryChip.bg, color: timelineBatteryChip.color, fontWeight: 700, border: `1px solid ${timelineBatteryChip.border}`, height: 24 }}
                             />
                           </Box>
                         )}
@@ -1218,12 +1226,12 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                             <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched In</Typography>
                             {punchInLocation.time && <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchInLocation.time)}</Typography>}
                           </Box>
-                          {batteryInfo.percentage !== null && (
+                          {timelineBatteryInfo.percentage !== null && (
                             <Box sx={{ mb: 0.8 }}>
                               <Chip
                                 size="small"
-                                label={`${batteryChip.label}${batteryInfo.isCharging ? " • Charging" : ""}`}
-                                sx={{ bgcolor: batteryChip.bg, color: batteryChip.color, fontWeight: 700, border: `1px solid ${batteryChip.border}`, height: 24 }}
+                                label={`${timelineBatteryChip.label}${timelineBatteryInfo.isCharging ? " • Charging" : ""}`}
+                                sx={{ bgcolor: timelineBatteryChip.bg, color: timelineBatteryChip.color, fontWeight: 700, border: `1px solid ${timelineBatteryChip.border}`, height: 24 }}
                               />
                             </Box>
                           )}
