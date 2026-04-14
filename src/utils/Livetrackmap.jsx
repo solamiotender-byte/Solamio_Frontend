@@ -26,6 +26,8 @@ const API  = "https://vanurtech-solar-backend.onrender.com";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
 const MIN_MOVE_METRES = 35;
+const SNAP_TO_ROADS_MAX_POINTS = 100;
+const SNAP_TO_ROADS_MAX_GAP_METRES = 300;
 
 function getEffectiveMoveThreshold(currentAccuracy = 0, previousAccuracy = 0) {
   const current = Number(currentAccuracy) || 0;
@@ -132,6 +134,8 @@ export default function LiveTrackingMap({
   const liveMkRef  = useRef(null);
   const dotsRef    = useRef([]);
   const allPtsRef  = useRef([]);
+  const snappedTrailCacheRef = useRef({ key: "", path: [] });
+  const drawRequestSeqRef = useRef(0);
 const visitMkRef = useRef([]);
   const userAdjustedViewportRef = useRef(false);
   const suppressViewportEventsRef = useRef(false);
@@ -432,13 +436,128 @@ useEffect(() => {
   }, [mapLoaded, isOwner]);
 
   // ── drawTrail ───────────────────────────────────────────────────────────────
-  function drawTrail(points, options = {}) {
+  function buildSnapBatchKey(points) {
+    return points
+      .map((p) => `${Number(p.lat).toFixed(6)},${Number(p.lng).toFixed(6)}`)
+      .join("|");
+  }
+
+  async function fetchSnappedBatch(batch) {
+    if (!Array.isArray(batch) || batch.length < 2) {
+      return batch.map((point) => ({ lat: point.lat, lng: point.lng }));
+    }
+
+    const path = batch
+      .map((point) => `${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`)
+      .join("|");
+
+    const url =
+      `https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=${encodeURIComponent(path)}&key=${GKEY}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Snap to Roads failed with status ${res.status}`);
+    }
+
+    const data = await res.json();
+    const snapped = Array.isArray(data?.snappedPoints)
+      ? data.snappedPoints
+          .map((point) => ({
+            lat: Number(point?.location?.latitude),
+            lng: Number(point?.location?.longitude),
+          }))
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+      : [];
+
+    return snapped.length
+      ? snapped
+      : batch.map((point) => ({ lat: point.lat, lng: point.lng }));
+  }
+
+  async function getRoadPath(points) {
+    if (!Array.isArray(points) || points.length < 2) {
+      return points.map((point) => ({ lat: point.lat, lng: point.lng }));
+    }
+
+    const cacheKey = buildSnapBatchKey(points);
+    if (snappedTrailCacheRef.current.key === cacheKey) {
+      return snappedTrailCacheRef.current.path;
+    }
+
+    const batches = [];
+    let currentBatch = [points[0]];
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const gapMetres = distMetres(prev.lat, prev.lng, curr.lat, curr.lng);
+
+      if (
+        gapMetres > SNAP_TO_ROADS_MAX_GAP_METRES ||
+        currentBatch.length >= SNAP_TO_ROADS_MAX_POINTS
+      ) {
+        if (currentBatch.length >= 2) {
+          batches.push(currentBatch);
+        }
+        currentBatch = gapMetres > SNAP_TO_ROADS_MAX_GAP_METRES ? [curr] : [prev, curr];
+        continue;
+      }
+
+      currentBatch.push(curr);
+    }
+
+    if (currentBatch.length >= 2) {
+      batches.push(currentBatch);
+    }
+
+    if (!batches.length) {
+      return points.map((point) => ({ lat: point.lat, lng: point.lng }));
+    }
+
+    const snappedPath = [];
+
+    for (const batch of batches) {
+      const snappedBatch = await fetchSnappedBatch(batch);
+      if (!snappedBatch.length) continue;
+
+      if (snappedPath.length > 0) {
+        const first = snappedBatch[0];
+        const last = snappedPath[snappedPath.length - 1];
+        const duplicate =
+          Math.abs(first.lat - last.lat) < 0.000001 &&
+          Math.abs(first.lng - last.lng) < 0.000001;
+        snappedPath.push(...(duplicate ? snappedBatch.slice(1) : snappedBatch));
+      } else {
+        snappedPath.push(...snappedBatch);
+      }
+    }
+
+    const finalPath = snappedPath.length
+      ? snappedPath
+      : points.map((point) => ({ lat: point.lat, lng: point.lng }));
+
+    snappedTrailCacheRef.current = { key: cacheKey, path: finalPath };
+    return finalPath;
+  }
+
+  async function drawTrail(points, options = {}) {
     const { autoFit = false, autoPanLive = false } = options;
     if (!gMapRef.current || !window.google?.maps || points.length === 0) return;
     const G   = window.google.maps;
     const map = gMapRef.current;
-    const path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
     const shouldDrawLine = points.length >= 2 && hasConfirmedMovement(points);
+    const requestSeq = ++drawRequestSeqRef.current;
+
+    let path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
+    if (shouldDrawLine) {
+      try {
+        path = await getRoadPath(points);
+      } catch (error) {
+        console.warn("[SnapToRoads] Falling back to raw path:", error?.message || error);
+      }
+    }
+
+    if (requestSeq !== drawRequestSeqRef.current) return;
 
     if (shouldDrawLine) {
       if (polyRef.current.casing && polyRef.current.main) {
@@ -526,7 +645,7 @@ useEffect(() => {
 
     if (shouldDrawLine && !isLive && autoFit && !userAdjustedViewportRef.current) {
       const bounds = new G.LatLngBounds();
-      points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+      path.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
       withProgrammaticViewport(() => {
         map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
       });
@@ -695,6 +814,8 @@ useEffect(() => {
     dotsRef.current = [];
     if (liveMkRef.current) { liveMkRef.current.setMap(null); liveMkRef.current = null; }
     allPtsRef.current = [];
+    snappedTrailCacheRef.current = { key: "", path: [] };
+    drawRequestSeqRef.current += 1;
     userAdjustedViewportRef.current = false;
     setTotalKm(0);
     setPointCount(0);
