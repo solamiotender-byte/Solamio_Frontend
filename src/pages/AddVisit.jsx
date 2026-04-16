@@ -450,7 +450,7 @@ useEffect(() => {
   // ── validation ────────────────────────────────────────────────────────────
   const validate = () => {
     const errors = {};
-    // if (!imageFile)                    errors.photo        = 'Please capture a photo';
+    if (!imageFile)                    errors.photo        = 'Please capture a photo';
     if (!formData.locationName.trim()) errors.locationName = 'Location name is required';
     if (!location)                     errors.location     = 'Location coordinates are required';
     const leadOptionCreatesLead = isLeadCreated === 'yes' || isLeadCreated === 'no';
@@ -505,7 +505,7 @@ const handleSubmit = async () => {
       if (formData.email.trim())         fd.append('email',         formData.email.trim());
     }
 
-    // fd.append('photos', imageFile);
+    fd.append('photos', imageFile);
 
     // ✅ Single API call — backend handles visit + lead creation based on isLeadCreated
     const visitRes  = await fetch(`${BASE_URL}/visit`, {
@@ -645,7 +645,7 @@ const handleSubmit = async () => {
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <CameraAlt /> Site Photo
-                  {/* <Chip label="Required" size="small" color={imageFile ? 'success' : 'error'} sx={{ ml: 'auto', height: 24 }} /> */}
+                  <Chip label="Required" size="small" color={imageFile ? 'success' : 'error'} sx={{ ml: 'auto', height: 24 }} />
                 </Typography>
                 <AnimatePresence mode="wait">
                   {preview ? (
