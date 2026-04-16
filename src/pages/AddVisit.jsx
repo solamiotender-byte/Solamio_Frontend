@@ -450,142 +450,125 @@ useEffect(() => {
   // ── validation ────────────────────────────────────────────────────────────
   const validate = () => {
     const errors = {};
-    if (!imageFile)                    errors.photo        = 'Please capture a photo';
+    // if (!imageFile)                    errors.photo        = 'Please capture a photo';
     if (!formData.locationName.trim()) errors.locationName = 'Location name is required';
     if (!location)                     errors.location     = 'Location coordinates are required';
-    if (isLeadCreated === 'yes') {
-      if (!formData.contactPerson.trim()) errors.contactPerson = 'Contact person is required';
+    const leadOptionCreatesLead = isLeadCreated === 'yes' || isLeadCreated === 'no';
+    if (leadOptionCreatesLead) {
+      if (
+        !formData.contactPerson.trim() &&
+        !formData.phone.trim() &&
+        !formData.email.trim()
+      ) {
+        errors.contactPerson = 'Enter at least one contact detail';
+      }
       if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
       if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email';
     }
-    if (isLeadCreated === 'no') {
-      if (formData.phone && !/^[0-9+\-\s()]{10,15}$/.test(formData.phone)) errors.phone = 'Please enter a valid phone number';
-      if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email';
+    if (isLeadCreated === 'other' && !formData.remarks.trim()) {
+      errors.remarks = 'Description is required for Other';
     }
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
   // ── submit ────────────────────────────────────────────────────────────────
-  const handleSubmit = async () => {
-    if (!validate()) { setError('Please fill all required fields correctly'); return; }
-    setLoading(true);
-    setError(null);
+const handleSubmit = async () => {
+  if (!validate()) { setError('Please fill all required fields correctly'); return; }
+  setLoading(true);
+  setError(null);
 
-    const now       = new Date();
-    const visitDate = now.toISOString().split('T')[0];
-    const visitTime = now.toTimeString().slice(0, 5);
+  const now       = new Date();
+  const visitDate = now.toISOString().split('T')[0];
+  const visitTime = now.toTimeString().slice(0, 5);
 
-    // ✅ Calculate distance from previous location (A→B, B→C, C→D …)
- const distanceKm = roadDistanceKm ?? 0;
+  const distanceKm = roadDistanceKm ?? 0;
 
-    console.log(
-      `[Distance] ${prevLocation?.label || 'none'} → ${formData.locationName}: ${distanceKm.toFixed(3)} km`
-    );
+  try {
+    const fd = new FormData();
 
-    try {
-      const fd = new FormData();
+    fd.append('latitude',               location.lat.toString());
+    fd.append('longitude',              location.lng.toString());
+    fd.append('locationName',           formData.locationName.trim());
+    fd.append('isLeadCreated',          isLeadCreated);
+    fd.append('visitDate',              visitDate);
+    fd.append('visitTime',              visitTime);
+    fd.append('visitStatus',            'Completed');
+    fd.append('distanceFromPreviousKm', distanceKm.toFixed(3));
 
-      fd.append('latitude',               location.lat.toString());
-      fd.append('longitude',              location.lng.toString());
-      fd.append('locationName',           formData.locationName.trim());
-      fd.append('isLeadCreated',          isLeadCreated);
-      fd.append('visitDate',              visitDate);
-      fd.append('visitTime',              visitTime);
-      fd.append('visitStatus',            'Completed');
-      fd.append('distanceFromPreviousKm', distanceKm.toFixed(3)); // ✅ A→B distance
+    if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
 
-      if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
-
-      if (isLeadCreated !== 'other') {
-        if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
-        if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
-        if (formData.email.trim())         fd.append('email',         formData.email.trim());
-      }
-
-      fd.append('photos', imageFile);
-
-      // Step 1 — save the visit
-      const visitRes  = await fetch(`${BASE_URL}/visit`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body:    fd,
-      });
-      const visitJson = await visitRes.json();
-      if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
-
-      // ✅ Update prevLocation immediately so next visit in same session uses
-      // this visit as its "previous" — handles rapid back-to-back visit creation
-      setPrevLocation({
-        lat:   location.lat,
-        lng:   location.lng,
-        label: formData.locationName.trim(),
-      });
-
-      // Step 2 — create lead
-      if (isLeadCreated === 'yes' && formData.contactPerson.trim()) {
-        const nameParts = formData.contactPerson.trim().split(' ');
-        const firstName = nameParts[0] || 'Unknown';
-        const lastName  = nameParts.slice(1).join(' ') || '.';
-        const leadRes   = await fetch(`${BASE_URL}/lead/create`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify({
-            firstName,
-            lastName,
-            phone:         formData.phone.trim(),
-            email:         formData.email.trim(),
-            visitLocation: formData.locationName.trim(),
-            date:          visitDate,
-            time:          visitTime,
-            visitNotes:    formData.remarks.trim(),
-            visitStatus:   'Completed',
-            status:        'Lead',
-          }),
-        });
-        const leadJson = await leadRes.json();
-        if (!leadRes.ok) console.warn('Lead save failed:', leadJson.message);
-      }
-
-      // Step 3 — 'other' visit notes
-      if (isLeadCreated === 'other' && formData.remarks.trim()) {
-        const leadRes = await fetch(`${BASE_URL}/lead/create`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify({
-            firstName:     'Other',
-            lastName:      'Visit',
-            visitLocation: formData.locationName.trim(),
-            date:          visitDate,
-            time:          visitTime,
-            visitNotes:    formData.remarks.trim(),
-            visitStatus:   'Completed',
-            status:        'Visit',
-          }),
-        });
-        const leadJson = await leadRes.json();
-        if (!leadRes.ok) console.warn('Other visit save failed:', leadJson.message);
-      }
-
-      const visitData = visitJson.data || visitJson;
-      setCreatedVisit(visitData);
-      setSuccess(true);
-      if (onSave) onSave(visitData);
-
-      setImageFile(null);
-      setPreview(null);
-      setFormData({ locationName: '', remarks: '', contactPerson: '', phone: '', email: '' });
-      setIsLeadCreated('no');
-
-    } catch (err) {
-      console.error('Visit creation error:', err);
-      setError(err.message || 'Failed to create visit');
-    } finally {
-      setLoading(false);
+    // ✅ Send contact fields only for 'yes' and 'no' — not for 'other'
+    if (isLeadCreated === 'yes' || isLeadCreated === 'no') {
+      if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
+      if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
+      if (formData.email.trim())         fd.append('email',         formData.email.trim());
     }
-  };
 
-  const canSubmit  = !loading && !!location && !!imageFile && !!formData.locationName.trim();
+    // fd.append('photos', imageFile);
+
+    // ✅ Single API call — backend handles visit + lead creation based on isLeadCreated
+    const visitRes  = await fetch(`${BASE_URL}/visit`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${getToken()}` },
+      body:    fd,
+    });
+    const visitJson = await visitRes.json();
+    if (!visitRes.ok) throw new Error(visitJson.message || `HTTP ${visitRes.status}`);
+
+    // Update prevLocation for next visit in same session
+    setPrevLocation({
+      lat:   location.lat,
+      lng:   location.lng,
+      label: formData.locationName.trim(),
+    });
+
+    const visitResult = visitJson?.result ?? visitJson?.data ?? visitJson;
+    const visitData = visitResult?.visit ?? visitResult;
+    const createdLead = visitResult?.lead ?? visitData?.leadCreated ?? null;
+    const createdLeadId =
+      createdLead?._id ||
+      (typeof createdLead === 'string' ? createdLead : null) ||
+      visitData?.leadCreated?._id ||
+      (typeof visitData?.leadCreated === 'string' ? visitData.leadCreated : null);
+
+    if (!visitData?._id) {
+      throw new Error(visitJson?.message || visitResult?.message || 'Visit was created, but the app could not read the response');
+    }
+
+    if ((isLeadCreated === 'yes' || isLeadCreated === 'no') && !createdLeadId) {
+      throw new Error('Visit was saved, but lead was not created. Please check backend lead creation.');
+    }
+
+    setCreatedVisit(visitData);
+    setSuccess(true);
+    if (onSave) onSave(visitData);
+
+    setImageFile(null);
+    setPreview(null);
+    setFormData({ locationName: '', remarks: '', contactPerson: '', phone: '', email: '' });
+    setIsLeadCreated('no');
+
+  } catch (err) {
+    console.error('Visit creation error:', err);
+    setError(err.message || 'Failed to create visit');
+  } finally {
+    setLoading(false);
+  }
+};
+
+  const requiresContact = isLeadCreated === 'yes' || isLeadCreated === 'no';
+  const canSubmit  =
+    !loading &&
+    !!location &&
+    
+    !!formData.locationName.trim() &&
+    (
+      !requiresContact ||
+      !!formData.contactPerson.trim() ||
+      !!formData.phone.trim() ||
+      !!formData.email.trim()
+    );
   const mapCenter  = location ? [location.lat, location.lng] : [22.5726, 88.3639];
 
   // ── Computed distance preview (shown on map section) ─────────────────────
@@ -662,7 +645,7 @@ useEffect(() => {
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}>
                   <CameraAlt /> Site Photo
-                  <Chip label="Required" size="small" color={imageFile ? 'success' : 'error'} sx={{ ml: 'auto', height: 24 }} />
+                  {/* <Chip label="Required" size="small" color={imageFile ? 'success' : 'error'} sx={{ ml: 'auto', height: 24 }} /> */}
                 </Typography>
                 <AnimatePresence mode="wait">
                   {preview ? (
@@ -724,7 +707,7 @@ useEffect(() => {
                     sx={{ justifyContent: 'space-around', bgcolor: alpha(PRIMARY, 0.05), borderRadius: 2, p: 1 }}>
                     <FormControlLabel value="yes"   control={<Radio sx={{ color: PRIMARY }} />} label="Yes"   />
                     <FormControlLabel value="no"    control={<Radio sx={{ color: PRIMARY }} />} label="No"    />
-                    <FormControlLabel value="other" control={<Radio sx={{ color: PRIMARY }} />} label="Other" />
+                    <FormControlLabel value="other" control={<Radio sx={{ color: PRIMARY }} />} label="Other (Save Description Only)" />
                   </RadioGroup>
                 </FormControl>
               </FormSection>
@@ -869,7 +852,9 @@ useEffect(() => {
               <FormSection>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, color: PRIMARY, mb: 2 }}><Notes /> Visit Notes</Typography>
                 <TextField fullWidth multiline rows={isMobile ? 3 : 4} placeholder="Enter any additional notes about the visit…"
+                  label={isLeadCreated === 'other' ? 'Description *' : 'Visit Notes'}
                   value={formData.remarks} onChange={handleChange('remarks')} disabled={loading}
+                  error={!!validationErrors.remarks} helperText={validationErrors.remarks}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'action.hover' } }} />
               </FormSection>
             </Stack>

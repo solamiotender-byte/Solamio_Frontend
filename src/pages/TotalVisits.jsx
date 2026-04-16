@@ -1121,7 +1121,7 @@ const MobileVisitCard = ({ visit, onView, onEdit }) => {
           >
             {/* Additional Info */}
             <Grid container spacing={2}>
-              {visit.visitNotes && (
+              {(visit.visitNotes || visit.remarks) && (
                 <Grid item xs={12}>
                   <Typography
                     variant="caption"
@@ -1131,7 +1131,7 @@ const MobileVisitCard = ({ visit, onView, onEdit }) => {
                     {visit.status === "Other" ? "Description" : "Notes"}
                   </Typography>
                   <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
-                    {visit.visitNotes}
+                    {visit.visitNotes || visit.remarks}
                   </Typography>
                 </Grid>
               )}
@@ -1223,6 +1223,7 @@ const ViewVisitModal = React.memo(
 
     // Determine label for notes tab based on status
     const notesLabel = visit.status === "Other" ? "Description" : "Visit Notes";
+    const visitNotes = visit.visitNotes || visit.remarks || "";
 
     const tabs = [
       {
@@ -1409,7 +1410,7 @@ const ViewVisitModal = React.memo(
                 </Typography>
               </Paper>
             )}
-            {visit.visitNotes && (
+            {visitNotes && (
               <Paper
                 elevation={0}
                 sx={{
@@ -1436,12 +1437,12 @@ const ViewVisitModal = React.memo(
                   variant="body2"
                   style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
                 >
-                  {visit.visitNotes}
+                  {visitNotes}
                 </Typography>
               </Paper>
             )}
             {/* Show a hint when no notes/location for 'Other' type */}
-            {visit.status === "Other" && !visit.visitNotes && (
+            {visit.status === "Other" && !visitNotes && (
               <Paper
                 elevation={0}
                 sx={{

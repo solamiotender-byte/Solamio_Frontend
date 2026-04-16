@@ -16,7 +16,7 @@
 
 import { toast } from "../components/useToast.jsx";
 
-const API = import.meta.env.VITE_API_URL || "https://vanurtech-solar-backend.onrender.com";
+const API = "https://vanurtech-solar-backend.onrender.com";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

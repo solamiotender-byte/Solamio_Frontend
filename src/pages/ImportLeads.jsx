@@ -82,9 +82,7 @@ const PRIMARY = "#4569ea";
 const SECONDARY = "#1a237e";
 const SUCCESS = "#22c55e";
 const WARNING = "#f59e0b";
-const API_BASE = (
-  process.env.REACT_APP_API_URL || "https://vanurtech-solar-backend.onrender.com/api/v1"
-).replace(/\/+$/, "");
+const API_BASE = "https://vanurtech-solar-backend.onrender.com/api/v1";
 
 // Role-based access control
 const ALLOWED_ROLES = ["ASM", "ZSM", "Head_office", "TEAM"];

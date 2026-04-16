@@ -14,10 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL =
-  import.meta.env.VITE_SOCKET_URL ||
-  import.meta.env.VITE_API_URL    ||
-  "https://vanurtech-solar-backend.onrender.com";
+const SOCKET_URL = "https://vanurtech-solar-backend.onrender.com";
 
 // ── Module-level singletons ────────────────────────────────────────────────────
 let globalSocket  = null;

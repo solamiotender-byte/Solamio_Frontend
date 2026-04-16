@@ -18,9 +18,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { stopTracking, isCurrentlyTracking } from "../utils/Locationtracker.js";
 import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
-const BASE_URL = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api/v1`
-  : "https://vanurtech-solar-backend.onrender.com/api/v1";
+const BASE_URL = "https://vanurtech-solar-backend.onrender.com/api/v1";
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";
