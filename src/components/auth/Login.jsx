@@ -911,7 +911,7 @@ const Login = () => {
                     letterSpacing: "0.5px",
                   }}
                 >
-                  SOLAR CRM SOFTWARE
+                  Welcome Back to Sunergy Tech
                 </Typography>
               </Box>
             </Fade>
