@@ -20,7 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import LiveTrackMap from "../utils/Livetrackmap";
 
-const API = "https://vanurtech-solar-backend.onrender.com";
+const API = "https://solar-backend-1-4szm.onrender.com";
 
 const avatarColors = [
   "#4569ea", "#7c3aed", "#0ea5e9", "#f59e0b",

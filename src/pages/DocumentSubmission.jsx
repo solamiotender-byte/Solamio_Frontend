@@ -150,6 +150,15 @@ const ALLOWED_FILE_TYPES = [
   "application/pdf",
 ];
 
+const IMAGE_DOCUMENT_REGEX = /\.(jpg|jpeg|png|gif|bmp|webp)(\?.*)?$/i;
+const PDF_DOCUMENT_REGEX = /\.pdf(\?.*)?$/i;
+
+const isImageDocumentUrl = (url) =>
+  Boolean(url && IMAGE_DOCUMENT_REGEX.test(url));
+
+const isPdfDocumentUrl = (url) =>
+  Boolean(url && PDF_DOCUMENT_REGEX.test(url));
+
 // Period Options
 const PERIOD_OPTIONS = [
   { value: "Today", label: "Today", icon: <CalendarToday /> },
@@ -1121,6 +1130,13 @@ const FileUploadField = ({
   validationErrors,
 }) => {
   const fileInputRef = useRef(null);
+  const previewUrl = isImageDocumentUrl(value?.preview)
+    ? value.preview
+    : null;
+  const existingUrl = value?.url || "";
+  const hasDocument = Boolean(previewUrl || existingUrl);
+  const isExistingImage = isImageDocumentUrl(existingUrl);
+  const isExistingPdf = isPdfDocumentUrl(existingUrl);
 
   const handleBoxClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -1138,7 +1154,7 @@ const FileUploadField = ({
       <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
         {label}
       </Typography>
-      {value?.preview || value?.url ? (
+      {hasDocument ? (
         <Box sx={{ mb: 2 }}>
           <Box
             sx={{
@@ -1158,9 +1174,9 @@ const FileUploadField = ({
               spacing={2}
               sx={{ flex: 1 }}
             >
-              {value.preview ? (
+              {previewUrl ? (
                 <img
-                  src={value.preview}
+                  src={previewUrl}
                   alt="Preview"
                   style={{
                     width: 40,
@@ -1169,7 +1185,11 @@ const FileUploadField = ({
                     borderRadius: 4,
                   }}
                 />
-              ) : value.url ? (
+              ) : isExistingPdf ? (
+                <PictureAsPdfOutlined sx={{ color: PRIMARY_COLOR, fontSize: 40 }} />
+              ) : isExistingImage ? (
+                <ImageIcon sx={{ color: PRIMARY_COLOR, fontSize: 40 }} />
+              ) : existingUrl ? (
                 <DescriptionOutlined sx={{ color: PRIMARY_COLOR, fontSize: 40 }} />
               ) : (
                 <ImageIcon sx={{ color: PRIMARY_COLOR, fontSize: 40 }} />
@@ -1177,12 +1197,12 @@ const FileUploadField = ({
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" noWrap>
                   {value.file?.name ||
-                    (value.url ? label : "No file selected")}
+                    (existingUrl ? label : "No file selected")}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {value.file
                     ? formatFileSize(value.file.size)
-                    : value.url
+                    : existingUrl
                       ? "Existing document"
                       : "Click to upload"}
                 </Typography>
@@ -1276,10 +1296,8 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
     onClose();
   }, [handleReset, onClose]);
 
-  const isImage = useMemo(
-    () => imageUrl && /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(imageUrl),
-    [imageUrl],
-  );
+  const isImage = useMemo(() => isImageDocumentUrl(imageUrl), [imageUrl]);
+  const isPdf = useMemo(() => isPdfDocumentUrl(imageUrl), [imageUrl]);
 
   const handleDownload = useCallback(() => {
     if (!imageUrl) return;
@@ -1377,6 +1395,24 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
               }}
             />
           </Box>
+        ) : isPdf ? (
+          <Box
+            sx={{
+              width: "100%",
+              height: fullscreen || isMobile ? "calc(100vh - 64px)" : "70vh",
+              bgcolor: "#fff",
+            }}
+          >
+            <iframe
+              src={imageUrl}
+              title={title || "Document Viewer"}
+              style={{
+                width: "100%",
+                height: "100%",
+                border: "none",
+              }}
+            />
+          </Box>
         ) : (
           <Box sx={{ p: 4, textAlign: "center" }}>
             <DescriptionOutlined
@@ -1403,7 +1439,7 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
           </Box>
         )}
       </DialogContent>
-      {isImage && (
+      {(isImage || isPdf) && (
         <DialogActions
           sx={{
             bgcolor: "background.paper",
@@ -1415,26 +1451,30 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
             flexWrap: 'wrap',
           }}
         >
-          <Tooltip title="Zoom In">
-            <IconButton onClick={handleZoomIn} size="small">
-              <ZoomIn />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Zoom Out">
-            <IconButton onClick={handleZoomOut} size="small">
-              <ZoomOut />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Rotate Right">
-            <IconButton onClick={handleRotateRight} size="small">
-              <RotateRight />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Rotate Left">
-            <IconButton onClick={handleRotateLeft} size="small">
-              <RotateLeft />
-            </IconButton>
-          </Tooltip>
+          {isImage && (
+            <>
+              <Tooltip title="Zoom In">
+                <IconButton onClick={handleZoomIn} size="small">
+                  <ZoomIn />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Zoom Out">
+                <IconButton onClick={handleZoomOut} size="small">
+                  <ZoomOut />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Rotate Right">
+                <IconButton onClick={handleRotateRight} size="small">
+                  <RotateRight />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Rotate Left">
+                <IconButton onClick={handleRotateLeft} size="small">
+                  <RotateLeft />
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
           <Tooltip title="Reset">
             <IconButton onClick={handleReset} size="small">
               <Refresh />
@@ -2359,19 +2399,22 @@ const EditLeadModal = ({
         aadhaar: {
           file: null,
           url: lead.aadhaar?.url || "",
-          preview: lead.aadhaar?.url || null,
+          preview: isImageDocumentUrl(lead.aadhaar?.url) ? lead.aadhaar.url : null,
         },
         panCard: {
           file: null,
           url: lead.panCard?.url || "",
-          preview: lead.panCard?.url || null,
+          preview: isImageDocumentUrl(lead.panCard?.url) ? lead.panCard.url : null,
         },
         passbook: {
           file: null,
           url: lead.passbook?.url || "",
-          preview: lead.passbook?.url || null,
+          preview: isImageDocumentUrl(lead.passbook?.url) ? lead.passbook.url : null,
         },
-        otherDocuments: lead.otherDocuments || [],
+        otherDocuments: (lead.otherDocuments || []).map((doc) => ({
+          ...doc,
+          preview: isImageDocumentUrl(doc?.url) ? doc.url : null,
+        })),
         documentSubmissionDate: lead.documentSubmissionDate
           ? parseISO(lead.documentSubmissionDate)
           : null,

@@ -853,7 +853,7 @@ const Login = () => {
                   variant="caption"
                   sx={{ color: COLOR, fontWeight: 500 }}
                 >
-                  Vanurtech Mobile
+                  Sunergy Tech Mobile
                 </Typography>
               </Box>
             )}
@@ -892,7 +892,7 @@ const Login = () => {
                   {/* Logo Image */}
                   <img
                     src={logo}
-                    alt="Vanurtech Logo"
+                    alt="Sunergy Tech Logo"
                     style={{
                       width: "120%",
                       height: "120%",
@@ -1244,7 +1244,7 @@ const Login = () => {
                   lineHeight: 1.4,
                 }}
               >
-                � {new Date().getFullYear()} Vanurtech Solar Management
+                � {new Date().getFullYear()} Sunergy Tech Solar Management
                 System. All rights reserved.
                 <br />
                 <Typography
@@ -1284,4 +1284,5 @@ const Login = () => {
 };
 
 export default Login;
+
 

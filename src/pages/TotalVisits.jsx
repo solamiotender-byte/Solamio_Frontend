@@ -3392,7 +3392,7 @@ export default function TotalVisitsPage() {
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {visit.visitNotes || "—"}
+                            {visit.visitNotes || visit.remarks || "—"}
                           </Typography>
                         </TableCell>
                         <TableCell>
