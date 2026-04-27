@@ -480,7 +480,7 @@ const Login = () => {
         localStorage.removeItem("loginLockUntil");
         localStorage.removeItem("failedAttempts");
 
-        // ✅ CORRECTED: Get user data from result.user (not from a separate user variable)
+        // CORRECTED: Get user data from result.user (not from a separate user variable)
         const userData = result.user;
         const userRole = userData?.role;
 
@@ -892,7 +892,7 @@ const Login = () => {
                   {/* Logo Image */}
                   <img
                     src={logo}
-                    alt="Sunergy Tech Logo"
+                    alt="Sunergy Tech logo"
                     style={{
                       width: "120%",
                       height: "120%",
@@ -1244,9 +1244,8 @@ const Login = () => {
                   lineHeight: 1.4,
                 }}
               >
-                � {new Date().getFullYear()} Sunergy Tech Solar Management
-                System. All rights reserved.
-                <br />
+                {"\u00A9"} {new Date().getFullYear()} Sunergy Tech Solar
+                Management System. All rights reserved.
                 <Typography
                   component="span"
                   variant="caption"
@@ -1255,7 +1254,7 @@ const Login = () => {
                     color: COLOR_LIGHT,
                   }}
                 >
-                  Version 2.1.0 • Last updated:{" "}
+                  Version 2.1.0 {"\u2022"} Last updated:{" "}
                   {new Date().toLocaleDateString()}
                 </Typography>
               </Typography>
@@ -1273,7 +1272,7 @@ const Login = () => {
                   display: "block",
                 }}
               >
-                Mobile v2.1.0 • {new Date().toLocaleDateString()}
+                Mobile v2.1.0 {"\u2022"} {new Date().toLocaleDateString()}
               </Typography>
             )}
           </Paper>

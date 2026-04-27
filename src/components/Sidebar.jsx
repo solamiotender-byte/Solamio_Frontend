@@ -369,7 +369,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}
           >
-            Sungytech
+            Sunergy Tech
           </Typography>
           <Typography
             variant="caption"
@@ -418,7 +418,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2 }}
           >
-            Sunergytech
+            Sunergy Tech
           </Typography>
           <Typography
             variant="caption"

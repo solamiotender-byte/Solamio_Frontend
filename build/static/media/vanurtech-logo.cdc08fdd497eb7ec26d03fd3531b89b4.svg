@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 220" role="img" aria-labelledby="sunergyTitle sunergyDesc">
+  <title id="sunergyTitle">Sunergy Tech logo</title>
+  <desc id="sunergyDesc">Sunergy Tech logo with a sunrise, solar panel, arrow emblem, and blue-orange wordmark.</desc>
+  <defs>
+    <linearGradient id="sunGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffc874"/>
+      <stop offset="100%" stop-color="#ff9a4e"/>
+    </linearGradient>
+    <linearGradient id="panelBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7294ff"/>
+      <stop offset="100%" stop-color="#375de2"/>
+    </linearGradient>
+    <linearGradient id="panelDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#496fe9"/>
+      <stop offset="100%" stop-color="#233fb6"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#1839b8" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <g transform="translate(10 8)">
+      <circle cx="86" cy="68" r="31" fill="url(#sunGlow)"/>
+
+      <g stroke="#ff9c68" stroke-width="7" stroke-linecap="round">
+        <path d="M86 9 V26"/>
+        <path d="M64 14 L71 30"/>
+        <path d="M45 28 L57 40"/>
+        <path d="M34 49 L51 54"/>
+        <path d="M31 72 L49 72"/>
+        <path d="M35 95 L52 90"/>
+        <path d="M46 115 L58 103"/>
+        <path d="M65 128 L72 112"/>
+        <path d="M86 132 V115"/>
+        <path d="M107 128 L100 112"/>
+        <path d="M126 115 L114 103"/>
+        <path d="M137 95 L120 90"/>
+        <path d="M141 72 L123 72"/>
+        <path d="M137 49 L120 54"/>
+        <path d="M126 28 L114 40"/>
+        <path d="M107 14 L100 30"/>
+      </g>
+
+      <g transform="translate(22 83)">
+        <path d="M8 6 H112 L102 37 H0 Z" fill="#4b69da" stroke="#2d4cce" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M19 3 H122 L112 18 H9 Z" fill="#6f8dff" stroke="#2d4cce" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M0 36 H104 L89 62 H20 Z" fill="url(#panelDark)"/>
+        <path d="M12 16 H102 M25 5 L15 37 M49 5 L39 37 M73 5 L63 37 M97 5 L87 37" stroke="#9ab0ff" stroke-width="3" opacity="0.8"/>
+      </g>
+
+      <path d="M27 153 C40 170 58 182 86 190 C112 183 132 169 146 152 C133 152 120 146 111 136 C104 144 95 150 86 154 C76 150 67 144 60 136 C51 146 39 152 27 153 Z" fill="url(#panelBlue)" stroke="#2d4cce" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M27 153 C41 151 51 145 59 137 L86 152 L114 137 C122 146 132 151 146 152 C131 169 112 182 86 190 C58 182 40 170 27 153 Z" fill="#5577f2" opacity="0.75"/>
+    </g>
+
+    <g font-family="Segoe UI, Arial, Helvetica, sans-serif" font-weight="800">
+      <text x="192" y="104" font-size="58" fill="#2349c8">Sunergy</text>
+      <text x="196" y="152" font-size="50" fill="#ffad62">Tech</text>
+    </g>
+  </g>
+</svg>

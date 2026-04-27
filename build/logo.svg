@@ -1,67 +1,87 @@
-<svg width="420" height="200" viewBox="0 0 420 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 184" role="img" aria-labelledby="solarSoftwareTitle solarSoftwareDesc">
+  <title id="solarSoftwareTitle">Solar Software logo</title>
+  <desc id="solarSoftwareDesc">Solar Software logo with segmented circular mark, orange wordmark, and blue subtitle.</desc>
   <defs>
-    <linearGradient id="sunGradient" x1="100" y1="25" x2="100" y2="95" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFD36A"/>
-      <stop offset="1" stop-color="#FF8B4A"/>
+    <linearGradient id="orangeFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9c2a"/>
+      <stop offset="55%" stop-color="#ff6925"/>
+      <stop offset="100%" stop-color="#ff4f1f"/>
     </linearGradient>
-    <linearGradient id="panelGradient" x1="36" y1="90" x2="146" y2="160" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5C7CFF"/>
-      <stop offset="1" stop-color="#163EAF"/>
+    <linearGradient id="blueFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60b6ff"/>
+      <stop offset="55%" stop-color="#3e8ff0"/>
+      <stop offset="100%" stop-color="#256bd6"/>
     </linearGradient>
-    <linearGradient id="leafGradient" x1="48" y1="126" x2="144" y2="185" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#447BFF"/>
-      <stop offset="1" stop-color="#102E8A"/>
-    </linearGradient>
-    <filter id="softShadow" x="0" y="0" width="420" height="200" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0E2F88" flood-opacity="0.14"/>
-    </filter>
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="72%" stop-color="#f3f3f3"/>
+      <stop offset="100%" stop-color="#dedede"/>
+    </radialGradient>
   </defs>
 
-  <g filter="url(#softShadow)">
-    <g transform="translate(18 10)">
-      <circle cx="82" cy="68" r="32" fill="url(#sunGradient)"/>
-      <g stroke="#FF8D63" stroke-width="7" stroke-linecap="round">
-        <path d="M82 4V28"/>
-        <path d="M104 9L97 31"/>
-        <path d="M124 21L109 39"/>
-        <path d="M139 39L118 50"/>
-        <path d="M147 61L123 64"/>
-        <path d="M145 84L122 79"/>
-        <path d="M135 104L116 92"/>
-        <path d="M118 121L106 101"/>
-        <path d="M96 131L90 108"/>
-        <path d="M68 131L74 108"/>
-        <path d="M46 121L58 101"/>
-        <path d="M29 104L48 92"/>
-        <path d="M19 84L42 79"/>
-        <path d="M17 61L41 64"/>
-        <path d="M25 39L46 50"/>
-        <path d="M40 21L55 39"/>
-        <path d="M60 9L67 31"/>
-      </g>
+  <rect width="512" height="184" fill="#000000"/>
 
-      <path d="M20 92H144L126 128H38L20 92Z" fill="url(#panelGradient)"/>
-      <path d="M20 92H144L134 103H30L20 92Z" fill="#2E58E6"/>
-      <path d="M38 128H126C115 153 101 170 82 180C63 170 49 153 38 128Z" fill="url(#leafGradient)"/>
+  <g transform="translate(8 10)">
+    <circle cx="111" cy="84" r="44" fill="url(#centerGlow)"/>
 
-      <g fill="#6D8BFF" stroke="#173FA8" stroke-width="2.2">
-        <path d="M33 96L57 96L50 107L25 107Z"/>
-        <path d="M58 96L83 96L75 107L50 107Z"/>
-        <path d="M84 96L108 96L101 107L76 107Z"/>
-        <path d="M109 96L133 96L125 107L100 107Z"/>
-        <path d="M25 109L50 109L43 121L18 121Z"/>
-        <path d="M50 109L76 109L68 121L42 121Z"/>
-        <path d="M76 109L101 109L94 121L68 121Z"/>
-        <path d="M101 109L125 109L118 121L93 121Z"/>
-      </g>
+    <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+      <path d="M16 83 H181"/>
+      <path d="M28 41 C74 70 119 93 166 126"/>
+      <path d="M28 126 C71 95 118 72 163 42"/>
 
-      <path d="M42 137C58 137 69 146 76 157C63 158 52 164 43 173C27 165 18 151 16 138C22 137 31 137 42 137Z" fill="#447BFF"/>
-      <path d="M122 137C106 137 95 146 88 157C101 158 112 164 121 173C137 165 146 151 148 138C142 137 133 137 122 137Z" fill="#447BFF"/>
+      <path d="M70 12 C87 59 95 107 92 158"/>
+      <path d="M112 0 C111 52 111 106 116 161"/>
+      <path d="M152 11 C136 57 126 106 128 156"/>
+
+      <path d="M42 26 A116 116 0 0 1 168 10"/>
+      <path d="M18 54 A107 107 0 0 1 175 26"/>
+      <path d="M8 84 A102 102 0 0 1 177 57"/>
+      <path d="M14 112 A106 106 0 0 0 159 142"/>
+      <path d="M31 137 A114 114 0 0 0 153 160"/>
     </g>
 
-    <g transform="translate(198 44)">
-      <text x="0" y="52" fill="#0E49B5" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Sunergy</text>
-      <text x="0" y="108" fill="#FF934C" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Tech</text>
+    <g stroke="#0a0a0a" stroke-width="2">
+      <path d="M16 83 A95 95 0 0 1 44 27 L67 42 A67 67 0 0 0 44 83 Z" fill="url(#blueFill)"/>
+      <path d="M17 83 A95 95 0 0 0 44 138 L67 125 A67 67 0 0 1 45 83 Z" fill="url(#blueFill)"/>
+      <path d="M44 27 A96 96 0 0 1 84 9 L93 35 A67 67 0 0 0 67 42 Z" fill="url(#blueFill)"/>
+      <path d="M44 138 A98 98 0 0 0 92 161 L95 133 A68 68 0 0 1 67 125 Z" fill="url(#blueFill)"/>
+      <path d="M84 9 A107 107 0 0 1 132 0 L128 29 A78 78 0 0 0 93 35 Z" fill="url(#orangeFill)"/>
+      <path d="M132 0 A105 105 0 0 1 174 18 L160 42 A76 76 0 0 0 128 29 Z" fill="url(#orangeFill)"/>
+      <path d="M174 18 A98 98 0 0 1 191 41 L168 57 A70 70 0 0 0 160 42 Z" fill="url(#orangeFill)"/>
+      <path d="M191 41 A91 91 0 0 1 200 66 L173 71 A63 63 0 0 0 168 57 Z" fill="url(#orangeFill)"/>
+      <path d="M200 66 A84 84 0 0 1 202 84 L174 84 A56 56 0 0 0 173 71 Z" fill="url(#orangeFill)"/>
+
+      <path d="M44 27 A116 116 0 0 1 84 9 L70 2 A128 128 0 0 0 30 20 Z" fill="url(#blueFill)"/>
+      <path d="M30 20 A128 128 0 0 1 132 0 L132 -2 A136 136 0 0 0 70 2 Z" fill="url(#orangeFill)"/>
+      <path d="M132 0 A128 128 0 0 1 190 30 L199 18 A141 141 0 0 0 132 -2 Z" fill="url(#orangeFill)"/>
+      <path d="M16 83 A128 128 0 0 1 30 20 L18 11 A143 143 0 0 0 0 83 Z" fill="url(#blueFill)"/>
+      <path d="M16 83 A128 128 0 0 0 44 138 L30 147 A143 143 0 0 1 0 83 Z" fill="url(#blueFill)"/>
+      <path d="M44 138 A128 128 0 0 0 92 161 L96 176 A143 143 0 0 1 30 147 Z" fill="url(#blueFill)"/>
     </g>
+
+    <g transform="translate(79 52)">
+      <circle cx="22" cy="22" r="15" fill="#ffffff" stroke="url(#orangeFill)" stroke-width="2.6"/>
+      <g fill="none" stroke="url(#orangeFill)" stroke-width="2.1" stroke-linecap="round">
+        <path d="M22 3 L22 10"/>
+        <path d="M22 34 L22 41"/>
+        <path d="M3 22 L10 22"/>
+        <path d="M34 22 L41 22"/>
+        <path d="M8 8 L13 13"/>
+        <path d="M31 31 L36 36"/>
+        <path d="M8 36 L13 31"/>
+        <path d="M31 13 L36 8"/>
+      </g>
+      <g fill="none" stroke="url(#orangeFill)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="22" cy="22" r="7.5"/>
+        <path d="M21 14 C18 16 18 20 22 22 C25 23 26 26 23 29"/>
+        <path d="M17 17 C22 17 25 19 25 22 C25 24 23 26 21 27"/>
+        <path d="M21 13 L21 29"/>
+      </g>
+    </g>
+  </g>
+
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="165" y="118" font-size="112" font-weight="700" fill="url(#orangeFill)">Solar</text>
+    <text x="188" y="150" font-size="35" font-weight="700" fill="url(#blueFill)" letter-spacing="10">Software</text>
   </g>
 </svg>
