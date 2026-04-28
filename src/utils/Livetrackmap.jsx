@@ -29,6 +29,12 @@ const MIN_MOVE_METRES = 35;
 const SNAP_TO_ROADS_MAX_POINTS = 100;
 const SNAP_TO_ROADS_MAX_GAP_METRES = 300;
 
+function getGpsNoiseRadiusMetres(currentAccuracy = 0, previousAccuracy = 0) {
+  const current = Number(currentAccuracy) || 0;
+  const previous = Number(previousAccuracy) || 0;
+  return Math.max(35, Math.max(current, previous) * 1.1);
+}
+
 function getEffectiveMoveThreshold(currentAccuracy = 0, previousAccuracy = 0) {
   const current = Number(currentAccuracy) || 0;
   const previous = Number(previousAccuracy) || 0;
@@ -76,7 +82,8 @@ function calcFilteredKm(points) {
     const curr = points[i];
     const distM = distMetres(prev.lat, prev.lng, curr.lat, curr.lng);
     const requiredMove = getEffectiveMoveThreshold(curr.accuracy, prev.accuracy);
-    if (distM >= requiredMove) total += distM / 1000;
+    const gpsNoiseRadius = getGpsNoiseRadiusMetres(curr.accuracy, prev.accuracy);
+    if (distM >= requiredMove && distM >= gpsNoiseRadius) total += distM / 1000;
   }
   return Math.round(total * 1000) / 1000;
 }
@@ -84,15 +91,22 @@ function calcFilteredKm(points) {
 function hasConfirmedMovement(points) {
   if (!Array.isArray(points) || points.length < 2) return false;
 
+   let significantSegments = 0;
+   let travelledMetres = 0;
+
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1];
     const curr = points[i];
     const distM = distMetres(prev.lat, prev.lng, curr.lat, curr.lng);
     const minMoveRequired = getEffectiveMoveThreshold(curr.accuracy, prev.accuracy);
-    if (distM >= minMoveRequired) return true;
+    const gpsNoiseRadius = getGpsNoiseRadiusMetres(curr.accuracy, prev.accuracy);
+    if (distM >= minMoveRequired && distM >= gpsNoiseRadius) {
+      significantSegments += 1;
+      travelledMetres += distM;
+    }
   }
 
-  return false;
+  return significantSegments >= 2 || travelledMetres >= 80;
 }
 
 function distMetres(lat1, lng1, lat2, lng2) {
@@ -714,7 +728,7 @@ useEffect(() => {
         getEffectiveMoveThreshold(accuracy, prev.accuracy),
         distanceFromPrevious > 0 ? 28 : 40
       );
-      const gpsNoiseRadius = Math.max(35, Math.max(accuracy, prev.accuracy || 0) * 1.1);
+      const gpsNoiseRadius = getGpsNoiseRadiusMetres(accuracy, prev.accuracy);
 
       if (distanceFromPrevious <= 0 && distM < 30) continue;
       if (distM < requiredMove) continue;

@@ -38,6 +38,7 @@ const SECONDARY = '#1a237e';
 const SUCCESS   = '#4caf50';
 const ERROR_COL = '#f44336';
 const WARNING   = '#ff9800';
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
 const getToken = () =>
   localStorage.getItem('token') ||
@@ -422,7 +423,10 @@ useEffect(() => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { setError('Image must be under 10 MB'); return; }
-    if (!file.type.startsWith('image/')) { setError('Please capture a valid image'); return; }
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setError('Only JPG, PNG, WebP, HEIC, and HEIF images are supported');
+      return;
+    }
     setImageFile(file);
     const reader = new FileReader();
     reader.onloadend = () => setPreview(reader.result);

@@ -441,6 +441,13 @@ const VisitCard = ({ visit: v, index, isLast }) => {
 // ─── Filter Drawer ────────────────────────────────────────────────────────────
 const FilterDrawer = ({ open, onClose, filters, onApply }) => {
   const [local, setLocal] = useState(filters);
+
+  useEffect(() => {
+    if (open) {
+      setLocal(filters);
+    }
+  }, [filters, open]);
+
   return (
     <SwipeableDrawer anchor="bottom" open={open} onClose={onClose} onOpen={() => {}}
       PaperProps={{ sx: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "80vh" } }}>
@@ -669,7 +676,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
         page: pageNum, limit: 15,
         ...getDateRange(filters.dateRange),
         ...(isAdminView ? { userId: targetUserId } : {}),
-        ...(filters.statuses?.length === 1 ? { status: filters.statuses[0] } : {}),
+        ...(filters.statuses?.length ? { status: filters.statuses.join(",") } : {}),
       });
 
       const fetchedVisits =
@@ -701,12 +708,19 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   const fetchGpsDistance = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const today = new Date().toISOString().split("T")[0];
-      const res   = await apiFetch("/location/distance", { date: today, salesmanId: targetUserId });
+      const selectedDate =
+        filters.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/)
+          ? filters.dateRange
+          : (() => {
+              const now = new Date();
+              if (filters.dateRange === "yesterday") now.setDate(now.getDate() - 1);
+              return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+            })();
+      const res = await apiFetch("/location/distance", { date: selectedDate, salesmanId: targetUserId });
       const data  = res?.data || res?.result || res;
       setGpsDistance({ totalKm: data?.totalKm ?? 0, totalPoints: data?.totalPoints ?? 0 });
     } catch (e) { console.warn("GPS distance fetch failed:", e.message); }
-  }, [targetUserId]);
+  }, [filters.dateRange, targetUserId]);
 
   const fetchLatestBattery = useCallback(async () => {
     if (!targetUserId) return;
