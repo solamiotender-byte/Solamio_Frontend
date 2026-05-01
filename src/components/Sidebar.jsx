@@ -359,7 +359,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
           flexShrink: 0,
         }}
       >
-<Box component="img" src={vanurtechLogo} alt="Sunergy Tech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
+<Box component="img" src={vanurtechLogo} alt="Sahoo Construction & Solar logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
       </Box>
       {!effectiveCollapsed && (
         <Box sx={{ overflow: "hidden" }}>
@@ -409,7 +409,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             border: "2px solid rgba(255,255,255,0.28)",
           }}
         >
-          <Box component="img" src={vanurtechLogo} alt="Sunergy Tech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
+          <Box component="img" src={vanurtechLogo} alt="Sahoo Construction & Solar logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
         </Box>
         <Box>
           <Typography
@@ -698,7 +698,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               border: "1.5px solid rgba(255,255,255,0.25)",
             }}
           >
-            <Box component="img" src={vanurtechLogo} alt="Sunergy Tech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.35 }} />
+            <Box component="img" src={vanurtechLogo} alt="Sahoo Construction & Solar logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.35 }} />
           </Box>
           <Typography
             variant="subtitle1"

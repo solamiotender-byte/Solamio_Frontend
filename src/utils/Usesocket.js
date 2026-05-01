@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "https://solar-backend-1-4szm.onrender.com";
+const SOCKET_URL = "https://solar-backend-29z1.onrender.com";
 
 // ── Module-level singletons ────────────────────────────────────────────────────
 let globalSocket  = null;

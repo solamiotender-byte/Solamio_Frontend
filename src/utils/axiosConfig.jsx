@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance
 const axiosInstance = axios.create({
-  baseURL: 'https://solar-backend-1-4szm.onrender.com/api/v1',
+  baseURL: 'https://solar-backend-29z1.onrender.com/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',

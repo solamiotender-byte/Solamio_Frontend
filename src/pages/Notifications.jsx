@@ -17,7 +17,7 @@ import {
 } from "@mui/icons-material";
 
 const PRIMARY = "#4569ea";
-const API = "https://solar-backend-1-4szm.onrender.com/api/v1";
+const API = "https://solar-backend-29z1.onrender.com/api/v1";
 
 const getToken = () =>
   localStorage.getItem("token") ||

@@ -32,7 +32,7 @@ import {
   CheckCircleOutline,
 } from "@mui/icons-material";
 import { useAuth } from "../../contexts/AuthContext";
-import logo from "../../assets/vanurtech-logo.svg";
+import logo from "../../assets/logo.png";
 
 const COLOR = "#4569ea";
 const COLOR_LIGHT = "#5c7cec";
@@ -853,7 +853,7 @@ const Login = () => {
                   variant="caption"
                   sx={{ color: COLOR, fontWeight: 500 }}
                 >
-                  Sunergy Tech Mobile
+                   SCS360 CONNECT Mobile
                 </Typography>
               </Box>
             )}
@@ -892,7 +892,7 @@ const Login = () => {
                   {/* Logo Image */}
                   <img
                     src={logo}
-                    alt="Sunergy Tech logo"
+                    alt="Sahoo Construction & Solar logo"
                     style={{
                       width: "120%",
                       height: "120%",
@@ -911,7 +911,7 @@ const Login = () => {
                     letterSpacing: "0.5px",
                   }}
                 >
-                  Welcome Back to Sunergy Tech
+                  Welcome Back to  SCS360 CONNECT
                 </Typography>
               </Box>
             </Fade>
@@ -1244,7 +1244,7 @@ const Login = () => {
                   lineHeight: 1.4,
                 }}
               >
-                {"\u00A9"} {new Date().getFullYear()} Sunergy Tech Solar
+                {"\u00A9"} {new Date().getFullYear()}  SCS360 CONNECT Solar
                 Management System. All rights reserved.
                 <Typography
                   component="span"
