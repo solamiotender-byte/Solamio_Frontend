@@ -369,7 +369,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}
           >
-            Sunergy Tech
+          Solar 360
           </Typography>
           <Typography
             variant="caption"
@@ -418,7 +418,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2 }}
           >
-            Sunergy Tech
+            Solar 360
           </Typography>
           <Typography
             variant="caption"
@@ -709,7 +709,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               fontSize: "1rem",
             }}
           >
-            Sunergy Tech
+            Solar 360
           </Typography>
         </Box>
 
