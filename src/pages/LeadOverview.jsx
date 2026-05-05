@@ -205,6 +205,31 @@ const formatDate = (dateString, formatStr = "MMM dd, yyyy hh:mm a") => {
   } catch { return "Invalid date"; }
 };
 
+const getAssignedPerson = (lead) => {
+  const person = lead?.assignedUser || lead?.assignedManager;
+  if (!person) return null;
+
+  if (typeof person === "string") {
+    return {
+      name: "Assigned",
+      role: lead?.assignedUser ? "User" : "Manager",
+      initial: "A",
+    };
+  }
+
+  const name =
+    `${person.firstName || ""} ${person.lastName || ""}`.trim() ||
+    person.email ||
+    person.phone ||
+    "Assigned";
+
+  return {
+    name,
+    role: person.role || (lead?.assignedUser ? "User" : "Manager"),
+    initial: name.charAt(0),
+  };
+};
+
 const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 const validatePhone = (phone) => /^[0-9]{10}$/.test(phone.replace(/\D/g, ""));
 
@@ -454,16 +479,19 @@ const MobileLeadCard = ({ lead, onView, onEdit, onAssign, onDelete, permissions 
         </Box>
         <Collapse in={expanded}>
           <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${alpha(PRIMARY_COLOR, 0.1)}` }}>
-            {(lead.assignedUser || lead.assignedManager) && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">Assigned To</Typography>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Avatar sx={{ width: 24, height: 24, fontSize: 12 }}>{(lead.assignedUser?.firstName || lead.assignedManager?.firstName)?.[0]}</Avatar>
-                  <Typography variant="body2">{lead.assignedUser?.firstName || lead.assignedManager?.firstName}</Typography>
-                  <Typography variant="caption" color="text.secondary">({lead.assignedUser?.role || lead.assignedManager?.role})</Typography>
+            {(() => {
+              const assignedPerson = getAssignedPerson(lead);
+              return assignedPerson ? (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Assigned To</Typography>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Avatar sx={{ width: 24, height: 24, fontSize: 12 }}>{assignedPerson.initial}</Avatar>
+                    <Typography variant="body2">{assignedPerson.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">({assignedPerson.role})</Typography>
+                  </Box>
                 </Box>
-              </Box>
-            )}
+              ) : null;
+            })()}
             <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap" }}>
               <Button fullWidth size="small" variant="contained" startIcon={<Visibility sx={{ ml: 1 }} />} onClick={() => onView(lead)} sx={{ bgcolor: PRIMARY_COLOR, "&:hover": { bgcolor: SECONDARY_COLOR }, flex: 1 }} />
               {permissions.edit && (<Button fullWidth size="small" variant="outlined" startIcon={<Edit sx={{ ml: 1 }} />} onClick={() => onEdit(lead)} sx={{ borderColor: PRIMARY_COLOR, color: PRIMARY_COLOR, flex: 1 }} />)}
@@ -1473,12 +1501,15 @@ const LeadOverview = () => {
         <TableCell><Box display="flex" alignItems="center" gap={1}><Phone fontSize="small" sx={{ color: "text.secondary" }} /><Typography variant="body2">{lead.phone || "Not set"}</Typography></Box></TableCell>
         <TableCell><Chip label={lead.status} icon={statusColor.icon} size="small" sx={{ bgcolor: statusColor.bg, color: statusColor.color, fontWeight: 600 }} /></TableCell>
         <TableCell>
-          {lead.assignedUser || lead.assignedManager ? (
-            <Box display="flex" alignItems="center" gap={1}>
-              <Avatar sx={{ width: 24, height: 24, fontSize: 12, bgcolor: PRIMARY_COLOR }}>{(lead.assignedUser?.firstName || lead.assignedManager?.firstName)?.[0]}</Avatar>
-              <Box><Typography variant="body2">{lead.assignedUser?.firstName || lead.assignedManager?.firstName}</Typography><Typography variant="caption" color="text.secondary">{lead.assignedUser?.role || lead.assignedManager?.role}</Typography></Box>
-            </Box>
-          ) : <Typography variant="body2" color="text.secondary">Unassigned</Typography>}
+          {(() => {
+            const assignedPerson = getAssignedPerson(lead);
+            return assignedPerson ? (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Avatar sx={{ width: 24, height: 24, fontSize: 12, bgcolor: PRIMARY_COLOR }}>{assignedPerson.initial}</Avatar>
+                <Box><Typography variant="body2">{assignedPerson.name}</Typography><Typography variant="caption" color="text.secondary">{assignedPerson.role}</Typography></Box>
+              </Box>
+            ) : <Typography variant="body2" color="text.secondary">Unassigned</Typography>;
+          })()}
         </TableCell>
         <TableCell><Typography variant="caption">{formatDate(lead.createdAt, "MMM dd, yyyy")}</Typography></TableCell>
         <TableCell>

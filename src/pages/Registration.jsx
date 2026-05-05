@@ -345,6 +345,29 @@ const getInitials = (firstName, lastName) => {
   return `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase();
 };
 
+const getAssignedPerson = (record) => {
+  const person = record?.assignedUser || record?.assignedManager;
+  if (!person) return null;
+
+  if (typeof person === "string") {
+    return {
+      name: "Assigned",
+      role: record?.assignedUser ? "User" : "Manager",
+    };
+  }
+
+  const name =
+    `${person.firstName || ""} ${person.lastName || ""}`.trim() ||
+    person.email ||
+    person.phone ||
+    "Assigned";
+
+  return {
+    name,
+    role: person.role || (record?.assignedUser ? "User" : "Manager"),
+  };
+};
+
 // ========== MOBILE FILTER DRAWER ==========
 const MobileFilterDrawer = ({
   open,
@@ -4181,24 +4204,24 @@ export default function RegistrationPage() {
                             </Tooltip>
                           </TableCell>
                           <TableCell>
-                            {registration.assignedUser || registration.assignedManager ? (
-                              <Box>
-                                <Typography variant="body2" fontWeight={600}>
-                                  {registration.assignedUser
-                                    ? `${registration.assignedUser.firstName || ""} ${registration.assignedUser.lastName || ""}`.trim()
-                                    : `${registration.assignedManager?.firstName || ""} ${registration.assignedManager?.lastName || ""}`.trim()}
+                            {(() => {
+                              const assignedPerson = getAssignedPerson(registration);
+
+                              return assignedPerson ? (
+                                <Box>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {assignedPerson.name}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {assignedPerson.role}
+                                  </Typography>
+                                </Box>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">
+                                  Unassigned
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {registration.assignedUser
-                                    ? registration.assignedUser.role || "Assigned User"
-                                    : registration.assignedManager?.role || "Manager"}
-                                </Typography>
-                              </Box>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary">
-                                Unassigned
-                              </Typography>
-                            )}
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>
                             <Stack direction="row" spacing={1}>

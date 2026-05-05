@@ -77,6 +77,7 @@ import {
   CheckCircleOutline,
   PendingActions,
   Cancel,
+  Chat,
   Refresh,
   Tune,
   Download,
@@ -173,7 +174,22 @@ const STATUS_CONFIG = {
     order: 4,
     progress: 0,
   },
+  "Follow Up": {
+    bg: alpha(PRIMARY_COLOR, 0.08),
+    color: PRIMARY_COLOR,
+    icon: <Phone sx={{ fontSize: 16 }} />,
+    label: "Follow Up",
+    description: "Follow up required",
+    order: 5,
+    progress: 50,
+  },
 };
+
+const FOLLOW_UP_OPTIONS = [
+  { value: "Call", label: "Call", icon: <Phone sx={{ fontSize: 16 }} /> },
+  { value: "Message", label: "Message", icon: <Chat sx={{ fontSize: 16 }} /> },
+  { value: "Note", label: "Note", icon: <Notes sx={{ fontSize: 16 }} /> },
+];
 
 // Lead Status Configuration — now includes 'Other'
 const LEAD_STATUS_CONFIG = {
@@ -1688,6 +1704,8 @@ const EditVisitModal = React.memo(
       visitLocation: "",
       status: "Visit",
       visitNotes: "",
+      followUpAction: "",
+      followUpNotes: "",
       locationImage: null,
       locationImagePreview: null,
     });
@@ -1705,6 +1723,8 @@ const EditVisitModal = React.memo(
           visitLocation: visit.visitLocation || "",
           status: visit.status || "Visit",
           visitNotes: visit.visitNotes || "",
+          followUpAction: visit.followUpAction || "",
+          followUpNotes: visit.followUpNotes || "",
           locationImage: null,
           locationImagePreview: visit.locationImageUrl || null,
         });
@@ -1746,6 +1766,18 @@ const EditVisitModal = React.memo(
         errors.visitTime = "Visit time is required for scheduled visits";
       }
 
+      if (editForm.visitStatus === "Follow Up" && !editForm.visitDate) {
+        errors.visitDate = "Visit date is required for follow up";
+      }
+
+      if (editForm.visitStatus === "Follow Up" && !editForm.visitTime) {
+        errors.visitTime = "Visit time is required for follow up";
+      }
+
+      if (editForm.visitStatus === "Follow Up" && !editForm.followUpAction) {
+        errors.followUpAction = "Follow up type is required";
+      }
+
       setValidationErrors(errors);
       return Object.keys(errors).length === 0;
     }, [editForm]);
@@ -1767,6 +1799,22 @@ const EditVisitModal = React.memo(
           ...(editForm.visitLocation && { visitLocation: editForm.visitLocation.trim() }),
           status: editForm.status,
           ...(editForm.visitNotes && { visitNotes: editForm.visitNotes.trim() }),
+          followUpAction:
+            editForm.visitStatus === "Follow Up" ? editForm.followUpAction : "",
+          followUpNotes:
+            editForm.visitStatus === "Follow Up" ? editForm.followUpNotes.trim() : "",
+          followUpDate:
+            editForm.visitStatus === "Follow Up" && editForm.visitDate && editForm.visitTime
+              ? new Date(
+                  editForm.visitDate.getFullYear(),
+                  editForm.visitDate.getMonth(),
+                  editForm.visitDate.getDate(),
+                  editForm.visitTime.getHours(),
+                  editForm.visitTime.getMinutes(),
+                  0,
+                  0,
+                ).toISOString()
+              : null,
         };
 
         if (editForm.locationImage) {
@@ -1968,6 +2016,101 @@ const EditVisitModal = React.memo(
               size="small"
               placeholder={notesPlaceholder}
             />
+
+            {editForm.visitStatus === "Follow Up" && (
+              <>
+                <FormControl
+                  fullWidth
+                  size="small"
+                  error={!!validationErrors.followUpAction}
+                >
+                  <InputLabel>Follow Up Type</InputLabel>
+                  <Select
+                    value={editForm.followUpAction}
+                    label="Follow Up Type"
+                    onChange={handleChange("followUpAction")}
+                  >
+                    {FOLLOW_UP_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        <Stack direction="row" alignItems="center" spacing={1.5}>
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {validationErrors.followUpAction && (
+                    <FormHelperText>{validationErrors.followUpAction}</FormHelperText>
+                  )}
+                </FormControl>
+
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {FOLLOW_UP_OPTIONS.map((option) => (
+                    <Chip
+                      key={option.value}
+                      icon={option.icon}
+                      label={option.label}
+                      clickable
+                      color={
+                        editForm.followUpAction === option.value
+                          ? "primary"
+                          : "default"
+                      }
+                      variant={
+                        editForm.followUpAction === option.value
+                          ? "filled"
+                          : "outlined"
+                      }
+                      onClick={() => {
+                        setEditForm((prev) => ({
+                          ...prev,
+                          followUpAction: option.value,
+                        }));
+                        if (validationErrors.followUpAction) {
+                          setValidationErrors((prev) => ({
+                            ...prev,
+                            followUpAction: "",
+                          }));
+                        }
+                      }}
+                      sx={{
+                        borderColor: alpha(PRIMARY_COLOR, 0.35),
+                        color:
+                          editForm.followUpAction === option.value
+                            ? "#fff"
+                            : PRIMARY_COLOR,
+                        bgcolor:
+                          editForm.followUpAction === option.value
+                            ? PRIMARY_COLOR
+                            : "#fff",
+                      }}
+                    />
+                  ))}
+                </Stack>
+
+                <TextField
+                  label="Follow Up Details"
+                  value={editForm.followUpNotes}
+                  onChange={handleChange("followUpNotes")}
+                  multiline
+                  rows={isMobile ? 2 : 3}
+                  fullWidth
+                  size="small"
+                  placeholder="Add follow up details"
+                />
+
+                <Alert
+                  severity="info"
+                  sx={{
+                    bgcolor: alpha(PRIMARY_COLOR, 0.06),
+                    color: PRIMARY_COLOR,
+                    "& .MuiAlert-icon": { color: PRIMARY_COLOR },
+                  }}
+                >
+                  Follow up reminder will use the visit date and visit time.
+                </Alert>
+              </>
+            )}
 
             {editForm.visitStatus === "Completed" && (
               <Box>
