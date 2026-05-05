@@ -3345,6 +3345,15 @@ export default function BankLoanApply() {
                         py: 2,
                       }}
                     >
+                      Assigned To
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(PRIMARY, 0.05),
+                        fontWeight: 600,
+                        py: 2,
+                      }}
+                    >
                       Actions
                     </TableCell>
                   </TableRow>
@@ -3428,6 +3437,26 @@ export default function BankLoanApply() {
                             </Tooltip>
                           </TableCell>
                           <TableCell>
+                            {loan.assignedUser || loan.assignedManager ? (
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {loan.assignedUser
+                                    ? `${loan.assignedUser.firstName || ""} ${loan.assignedUser.lastName || ""}`.trim()
+                                    : `${loan.assignedManager?.firstName || ""} ${loan.assignedManager?.lastName || ""}`.trim()}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {loan.assignedUser
+                                    ? loan.assignedUser.role || "Assigned User"
+                                    : loan.assignedManager?.role || "Manager"}
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                Unassigned
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <Stack direction="row" spacing={1}>
                               <IconButton
                                 size="small"
@@ -3458,7 +3487,7 @@ export default function BankLoanApply() {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7}>
+                      <TableCell colSpan={8}>
                         <EmptyState
                           onClearFilters={handleClearFilters}
                           hasFilters={activeFilterCount > 0}

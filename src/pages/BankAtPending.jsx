@@ -4012,9 +4012,18 @@ export default function BankAtPendingPage() {
                             bgcolor: "transparent",
                           },
                         }}
-                      >
-                        Pending Date
-                      </Button>
+                    >
+                      Pending Date
+                    </Button>
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        fontWeight: 600,
+                        py: 2,
+                      }}
+                    >
+                      Assigned To
                     </TableCell>
                     <TableCell
                       sx={{
@@ -4128,6 +4137,26 @@ export default function BankAtPendingPage() {
                             </Box>
                           </TableCell>
                           <TableCell>
+                            {lead.assignedUser || lead.assignedManager ? (
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {lead.assignedUser
+                                    ? `${lead.assignedUser.firstName || ""} ${lead.assignedUser.lastName || ""}`.trim()
+                                    : `${lead.assignedManager?.firstName || ""} ${lead.assignedManager?.lastName || ""}`.trim()}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {lead.assignedUser
+                                    ? lead.assignedUser.role || "Assigned User"
+                                    : lead.assignedManager?.role || "Manager"}
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                Unassigned
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <Stack direction="row" spacing={1}>
                               <Tooltip title="View Details" arrow>
                                 <IconButton
@@ -4169,7 +4198,7 @@ export default function BankAtPendingPage() {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7}>
+                      <TableCell colSpan={8}>
                         <EmptyState
                           onClearFilters={handleClearFilters}
                           hasFilters={activeFilterCount > 0}

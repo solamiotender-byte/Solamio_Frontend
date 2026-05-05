@@ -4092,6 +4092,15 @@ export default function RegistrationPage() {
                         py: 2,
                       }}
                     >
+                      Assigned To
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(PRIMARY, 0.05),
+                        fontWeight: 600,
+                        py: 2,
+                      }}
+                    >
                       Actions
                     </TableCell>
                   </TableRow>
@@ -4172,6 +4181,26 @@ export default function RegistrationPage() {
                             </Tooltip>
                           </TableCell>
                           <TableCell>
+                            {registration.assignedUser || registration.assignedManager ? (
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {registration.assignedUser
+                                    ? `${registration.assignedUser.firstName || ""} ${registration.assignedUser.lastName || ""}`.trim()
+                                    : `${registration.assignedManager?.firstName || ""} ${registration.assignedManager?.lastName || ""}`.trim()}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {registration.assignedUser
+                                    ? registration.assignedUser.role || "Assigned User"
+                                    : registration.assignedManager?.role || "Manager"}
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                Unassigned
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <Stack direction="row" spacing={1}>
                               <IconButton
                                 size="small"
@@ -4214,7 +4243,7 @@ export default function RegistrationPage() {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6}>
+                      <TableCell colSpan={7}>
                         <EmptyState
                           onClearFilters={handleClearFilters}
                           hasFilters={activeFilterCount > 0}

@@ -19,6 +19,7 @@ import { stopTracking, isCurrentlyTracking } from "../utils/Locationtracker.js";
 import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 const BASE_URL = "https://solar-backend-29z1.onrender.com/api/v1";
+const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";
@@ -53,6 +54,38 @@ const apiFetch = async (path, params = {}, options = {}) => {
 };
 
 const fmt = (d) => d ? new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+
+const normalizePhotoUrl = (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+
+  const trimmedUrl = rawUrl.trim();
+  if (!trimmedUrl) return null;
+
+  if (trimmedUrl.startsWith("data:") || trimmedUrl.startsWith("blob:")) {
+    return trimmedUrl;
+  }
+
+  if (trimmedUrl.startsWith("/")) {
+    return `${BACKEND_ORIGIN}${trimmedUrl}`;
+  }
+
+  if (!/^https?:\/\//i.test(trimmedUrl)) {
+    return `${BACKEND_ORIGIN}/${trimmedUrl.replace(/^\/+/, "")}`;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedUrl);
+    if (
+      window.location.hostname === "localhost" &&
+      parsedUrl.pathname.startsWith("/public/")
+    ) {
+      return `${BACKEND_ORIGIN}${parsedUrl.pathname}`;
+    }
+    return parsedUrl.toString();
+  } catch {
+    return trimmedUrl;
+  }
+};
 
 const getDateRange = (r) => {
   const now = new Date();
@@ -259,10 +292,12 @@ const VisitCard = ({ visit: v, index, isLast }) => {
   const cur = v.status === "InProgress";
   const [imgOpen, setImgOpen] = useState(false);
 
-  const photoUrl = v.photos?.[0]?.url
+  const photoUrl = normalizePhotoUrl(
+    v.photos?.[0]?.url
     || (typeof v.photos?.[0] === "string" ? v.photos[0] : null)
     || v.photo
-    || null;
+    || null
+  );
 
   const address = (() => {
     if (!v.address) return "";
@@ -812,8 +847,8 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     : null;
 
   // ── Visits sorted oldest → newest for A→B→C display ──────────────────────
-  // API returns newest first — reverse for timeline display
-  const sortedVisits = [...visibleVisits].reverse();
+  // Keep newest visits first in the timeline.
+  const sortedVisits = visibleVisits;
   const currentBatteryInfo = liveBatteryInfo.percentage !== null ? liveBatteryInfo : punchBatteryInfo;
   const timelineBatteryInfo = punchBatteryInfo.percentage !== null ? punchBatteryInfo : liveBatteryInfo;
   const currentBatteryChip = getBatteryChipStyle(currentBatteryInfo.percentage);

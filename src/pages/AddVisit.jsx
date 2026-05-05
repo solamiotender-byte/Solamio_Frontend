@@ -118,14 +118,6 @@ const ImagePreview = styled(Box)(({ theme }) => ({
   },
 }));
 
-function FlyToLocation({ coords }) {
-  const map = useMap();
-  useEffect(() => {
-    if (coords) map.flyTo([coords.lat, coords.lng], 17, { duration: 1.2 });
-  }, [coords, map]);
-  return null;
-}
-
 // ─── Success Dialog ───────────────────────────────────────────────────────────
 const SuccessDialog = ({ open, visitData, onClose }) => {
   const navigate = useNavigate();
@@ -193,6 +185,9 @@ export default function VisitDetails({ onClose, onSave }) {
   const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
+  const { isLoaded: isGoogleMapLoaded, loadError: googleMapLoadError } = useJsApiLoader({
+    googleMapsApiKey: GKEY,
+  });
   const cameraInputRef = useRef(null);
 
   const [loading,          setLoading]          = useState(false);
@@ -329,18 +324,13 @@ useEffect(() => {
     try {
       setGeocoding(true);
       const res  = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
-        { headers: { 'Accept-Language': 'en' } }
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GKEY}`
       );
       const data = await res.json();
-      if (data?.display_name) {
-        const a = data.address || {};
-        const label =
-          a.shop || a.amenity || a.building ||
-          [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village]
-            .filter(Boolean).join(', ');
-        return label || data.display_name;
+      if (data?.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
+        return data.results[0].formatted_address || null;
       }
+      console.warn('Reverse geocode returned:', data?.status || 'UNKNOWN_STATUS');
     } catch (e) { console.warn('Reverse geocode failed:', e); }
     finally     { setGeocoding(false); }
     return null;
@@ -502,7 +492,7 @@ const handleSubmit = async () => {
 
     if (formData.remarks.trim()) fd.append('remarks', formData.remarks.trim());
 
-    // ✅ Send contact fields only for 'yes' and 'no' — not for 'other'
+    // Send contact fields when provided for non-"other" visits.
     if (isLeadCreated === 'yes' || isLeadCreated === 'no') {
       if (formData.contactPerson.trim()) fd.append('contactPerson', formData.contactPerson.trim());
       if (formData.phone.trim())         fd.append('phone',         formData.phone.trim());
@@ -541,7 +531,11 @@ const handleSubmit = async () => {
     }
 
     if ((isLeadCreated === 'yes' || isLeadCreated === 'no') && !createdLeadId) {
-      throw new Error('Visit was saved, but lead was not created. Please check backend lead creation.');
+      throw new Error(
+        visitResult?.leadCreationError ||
+        visitJson?.leadCreationError ||
+        'Visit was saved, but lead was not created. Please check backend lead creation.'
+      );
     }
 
     setCreatedVisit(visitData);
@@ -561,18 +555,7 @@ const handleSubmit = async () => {
   }
 };
 
-  const requiresContact = isLeadCreated === 'yes' || isLeadCreated === 'no';
-  const canSubmit  =
-    !loading &&
-    !!location &&
-    
-    !!formData.locationName.trim() &&
-    (
-      !requiresContact ||
-      !!formData.contactPerson.trim() ||
-      !!formData.phone.trim() ||
-      !!formData.email.trim()
-    );
+  const canSubmit = !loading;
   const mapCenter  = location ? [location.lat, location.lng] : [22.5726, 88.3639];
 
   // ── Computed distance preview (shown on map section) ─────────────────────
@@ -815,21 +798,37 @@ const handleSubmit = async () => {
                       <Button variant="contained" size="small" onClick={() => getCurrentLocation()} sx={{ mt: 1, borderRadius: 2, bgcolor: PRIMARY }}>Retry</Button>
                     </Box>
                   )}
-                  <MapContainer center={mapCenter} zoom={location ? 17 : 13} style={{ height: '100%', width: '100%' }} zoomControl scrollWheelZoom={false}>
-                    <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
-                    {location && <FlyToLocation coords={location} />}
-                    {location && (
-                      <Marker position={[location.lat, location.lng]}>
-                        <Popup>
-                          <Box sx={{ minWidth: 160 }}>
-                            <Typography variant="caption" fontWeight={700} display="block">📍 You are here</Typography>
-                            <Typography variant="caption" color="text.secondary">{location.lat.toFixed(6)}°, {location.lng.toFixed(6)}°</Typography>
-                            {location.accuracy && <Typography variant="caption" color="text.secondary" display="block">Accuracy: ±{location.accuracy.toFixed(0)} m</Typography>}
-                          </Box>
-                        </Popup>
-                      </Marker>
-                    )}
-                  </MapContainer>
+                  {googleMapLoadError ? (
+                    <Box sx={{ position: 'absolute', inset: 0, zIndex: 1000, bgcolor: 'rgba(255,255,255,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, p: 2 }}>
+                      <GpsOff sx={{ fontSize: 40, color: ERROR_COL }} />
+                      <Typography color="error" textAlign="center" variant="body2">Failed to load Google Map</Typography>
+                    </Box>
+                  ) : !isGoogleMapLoaded ? (
+                    <Box sx={{ position: 'absolute', inset: 0, zIndex: 1000, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(4px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                      <CircularProgress size={36} sx={{ color: PRIMARY }} />
+                      <Typography variant="caption" color="text.secondary">Loading map...</Typography>
+                    </Box>
+                  ) : (
+                    <GoogleMap
+                      mapContainerStyle={{ height: '100%', width: '100%' }}
+                      center={location ? { lat: location.lat, lng: location.lng } : { lat: mapCenter[0], lng: mapCenter[1] }}
+                      zoom={location ? 17 : 13}
+                      options={{
+                        streetViewControl: false,
+                        mapTypeControl: true,
+                        fullscreenControl: false,
+                        clickableIcons: false,
+                        gestureHandling: 'cooperative',
+                      }}
+                    >
+                      {location && (
+                        <MarkerF
+                          position={{ lat: location.lat, lng: location.lng }}
+                          title={`You are here${location.accuracy ? ` | Accuracy +/-${location.accuracy.toFixed(0)} m` : ''}`}
+                        />
+                      )}
+                    </GoogleMap>
+                  )}
                 </Box>
                 <Box sx={{ px: 2.5, pt: 1.5, pb: 2 }}>
                   {location && (

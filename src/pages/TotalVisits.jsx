@@ -2306,12 +2306,44 @@ export default function TotalVisitsPage() {
         params.append("endDate", format(today, "yyyy-MM-dd"));
       }
 
-      const response = await fetchAPI(
-        `/lead/visitSummary?${params.toString()}`,
-      );
+      const visitQuery = params.toString();
+      const [response, visitResponse] = await Promise.all([
+        fetchAPI(`/lead/visitSummary?${visitQuery}`),
+        fetchAPI(`/visit?${visitQuery}${visitQuery ? "&" : ""}page=1&limit=100`),
+      ]);
 
       if (response?.success) {
-        const visits = response.result?.visits || response.result || [];
+        const leadVisits = response.result?.visits || response.result || [];
+        const rawVisits = visitResponse?.result?.visits || [];
+        const otherVisits = rawVisits
+          .filter((visit) => !visit?.isLeadCreate)
+          .map((visit) => ({
+            _id: visit._id,
+            firstName: visit.contactPerson || visit.user?.firstName || "",
+            lastName: visit.contactPerson ? "" : (visit.user?.lastName || ""),
+            phone: visit.phone || "",
+            email: visit.email || "",
+            status: "Other",
+            visitStatus: visit.status || "Completed",
+            visitDate: visit.visitDate || visit.createdAt,
+            visitTime: visit.checkInTime || visit.createdAt,
+            visitLocation: visit.locationName || "",
+            visitNotes: visit.remarks || "",
+            createdAt: visit.createdAt,
+            updatedAt: visit.updatedAt,
+            assignedUser: visit.user
+              ? {
+                  _id: visit.user._id,
+                  firstName: visit.user.firstName,
+                  lastName: visit.user.lastName,
+                }
+              : null,
+            assignedManager: null,
+          }));
+
+        const visits = [...leadVisits, ...otherVisits].sort(
+          (a, b) => new Date(b.createdAt || b.visitDate || 0) - new Date(a.createdAt || a.visitDate || 0),
+        );
 
         const totalVisits = visits.length;
         const completedVisits = visits.filter(
@@ -3350,6 +3382,15 @@ export default function TotalVisitsPage() {
                         py: 2,
                       }}
                     >
+                      Assigned To
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        fontWeight: 600,
+                        py: 2,
+                      }}
+                    >
                       Actions
                     </TableCell>
                   </TableRow>
@@ -3415,6 +3456,26 @@ export default function TotalVisitsPage() {
                           />
                         </TableCell>
                         <TableCell>
+                          {visit.assignedUser || visit.assignedManager ? (
+                            <Box>
+                              <Typography variant="body2" fontWeight={600}>
+                                {visit.assignedUser
+                                  ? `${visit.assignedUser.firstName || ""} ${visit.assignedUser.lastName || ""}`.trim()
+                                  : `${visit.assignedManager?.firstName || ""} ${visit.assignedManager?.lastName || ""}`.trim()}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {visit.assignedUser
+                                  ? visit.assignedUser.role || "Assigned User"
+                                  : visit.assignedManager?.role || "Manager"}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Unassigned
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
                           <Stack direction="row" spacing={1}>
                             <Tooltip title="View Visit">
                               <IconButton
@@ -3440,7 +3501,7 @@ export default function TotalVisitsPage() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7}>
+                      <TableCell colSpan={8}>
                         <EmptyState
                           onClearFilters={handleClearFilters}
                           hasFilters={activeFilterCount > 0}

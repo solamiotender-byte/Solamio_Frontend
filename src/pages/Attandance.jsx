@@ -371,6 +371,7 @@ const PunchModal = ({ open, mode, onClose, onConfirm, punchLoading, geo, timer }
   const isMobile    = useMediaQuery(theme.breakpoints.down("sm"));
   const isPunchIn   = mode === "in";
   const accentColor = isPunchIn ? SUCCESS : DANGER;
+  const hasCoords   = geo.latitude != null && geo.longitude != null;
   const [tick, setTick]                       = useState(new Date());
   const [showFullAddress, setShowFullAddress] = useState(false);
   useEffect(() => {
@@ -415,13 +416,13 @@ const PunchModal = ({ open, mode, onClose, onConfirm, punchLoading, geo, timer }
               </Stack>
             </Paper>
           )}
-          <Paper elevation={0} sx={{ p: 2, borderRadius: 2.5, border: `1px solid ${alpha(geo.loading ? PRIMARY : geo.error ? DANGER : geo.latitude ? SUCCESS : "#000", 0.25)}`, bgcolor: alpha(geo.loading ? PRIMARY : geo.error ? DANGER : geo.latitude ? SUCCESS : "#000", 0.04) }}>
+          <Paper elevation={0} sx={{ p: 2, borderRadius: 2.5, border: `1px solid ${alpha(geo.loading ? PRIMARY : geo.error ? DANGER : hasCoords ? SUCCESS : "#000", 0.25)}`, bgcolor: alpha(geo.loading ? PRIMARY : geo.error ? DANGER : hasCoords ? SUCCESS : "#000", 0.04) }}>
             <Stack direction="row" spacing={1.5} alignItems="flex-start">
-              <Box sx={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, bgcolor: alpha(geo.loading ? PRIMARY : geo.error ? DANGER : geo.latitude ? SUCCESS : "#000", 0.1), display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {geo.loading ? <CircularProgress size={18} sx={{ color: PRIMARY }} /> : geo.error ? <GpsNotFixed sx={{ fontSize: 18, color: DANGER }} /> : geo.latitude ? <GpsFixed sx={{ fontSize: 18, color: SUCCESS }} /> : <LocationOn sx={{ fontSize: 18, color: "text.secondary" }} />}
+              <Box sx={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, bgcolor: alpha(geo.loading ? PRIMARY : geo.error ? DANGER : hasCoords ? SUCCESS : "#000", 0.1), display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {geo.loading ? <CircularProgress size={18} sx={{ color: PRIMARY }} /> : geo.error ? <GpsNotFixed sx={{ fontSize: 18, color: DANGER }} /> : hasCoords ? <GpsFixed sx={{ fontSize: 18, color: SUCCESS }} /> : <LocationOn sx={{ fontSize: 18, color: "text.secondary" }} />}
               </Box>
               <Box flex={1} minWidth={0}>
-                <Typography variant="body2" fontWeight={700}>{geo.loading ? "Detecting your location…" : geo.error ? "Location unavailable" : geo.latitude ? geo.address?.short || "Location acquired" : "Location not fetched"}</Typography>
+                <Typography variant="body2" fontWeight={700}>{geo.loading ? "Detecting your location…" : geo.error ? "Location unavailable" : hasCoords ? geo.address?.short || "Location acquired" : "Location not fetched"}</Typography>
                 {geo.address?.full && (
                   <Box sx={{ mt: 0.5 }}>
                     <Stack direction="row" spacing={0.5} alignItems="center" sx={{ cursor: "pointer" }} onClick={() => setShowFullAddress((v) => !v)}>
@@ -439,10 +440,10 @@ const PunchModal = ({ open, mode, onClose, onConfirm, punchLoading, geo, timer }
                     )}
                   </Box>
                 )}
-                {geo.latitude && !geo.error && !geo.address && <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>📍 {geo.latitude.toFixed(5)}, {geo.longitude.toFixed(5)}{geo.accuracy && ` (±${Math.round(geo.accuracy)}m)`}</Typography>}
+                {hasCoords && !geo.error && !geo.address && <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>📍 {geo.latitude.toFixed(5)}, {geo.longitude.toFixed(5)}{geo.accuracy && ` (±${Math.round(geo.accuracy)}m)`}</Typography>}
                 {geo.error && <Typography variant="caption" color="error" sx={{ display: "block", lineHeight: 1.3, mt: 0.25 }}>{geo.error}</Typography>}
               </Box>
-              {(geo.error || !geo.latitude) && !geo.loading && (
+              {(geo.error || !hasCoords) && !geo.loading && (
                 <IconButton size="small" onClick={() => geo.fetchLocation(true)} sx={{ bgcolor: alpha(PRIMARY, 0.08), flexShrink: 0 }}><Refresh fontSize="small" sx={{ color: PRIMARY }} /></IconButton>
               )}
             </Stack>
@@ -452,7 +453,7 @@ const PunchModal = ({ open, mode, onClose, onConfirm, punchLoading, geo, timer }
       </DialogContent>
       <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 }, gap: 1.5, flexDirection: { xs: "column", sm: "row" }, borderTop: `1px solid ${alpha(PRIMARY, 0.08)}` }}>
         <Button fullWidth={isMobile} variant="outlined" onClick={onClose} disabled={punchLoading} sx={{ borderRadius: 2.5, px: 3, borderColor: alpha(PRIMARY, 0.35), color: PRIMARY }}>Cancel</Button>
-        <Button fullWidth={isMobile} variant="contained" onClick={onConfirm} disabled={punchLoading || geo.loading || !geo.latitude} startIcon={punchLoading ? <CircularProgress size={16} color="inherit" /> : isPunchIn ? <Login /> : <Logout />} sx={{ borderRadius: 2.5, px: 3, fontWeight: 700, bgcolor: accentColor, "&:hover": { bgcolor: isPunchIn ? "#16a34a" : "#dc2626" } }}>
+        <Button fullWidth={isMobile} variant="contained" onClick={onConfirm} disabled={punchLoading || geo.loading || !hasCoords} startIcon={punchLoading ? <CircularProgress size={16} color="inherit" /> : isPunchIn ? <Login /> : <Logout />} sx={{ borderRadius: 2.5, px: 3, fontWeight: 700, bgcolor: accentColor, "&:hover": { bgcolor: isPunchIn ? "#16a34a" : "#dc2626" } }}>
           {punchLoading ? "Processing…" : isPunchIn ? "Confirm Punch In" : "Confirm Punch Out"}
         </Button>
       </DialogActions>
@@ -870,9 +871,19 @@ export default function Attendance() {
 
   const handleAllowLocation = useCallback(async () => {
     setLocationRequesting(true);
-    try { await geo.fetchLocation(true); } catch { /* shown in confirm modal */ }
-    finally { setLocationRequesting(false); setPunchState((s) => ({ ...s, stage: "confirm" })); }
-  }, [geo]);
+    try {
+      const location = await geo.fetchLocation(true);
+      if (location?.latitude != null && location?.longitude != null) {
+        setPunchState((s) => ({ ...s, stage: "confirm" }));
+        return;
+      }
+      showSnack("Could not get valid location. Please retry.", "error");
+    } catch (error) {
+      showSnack(error?.message || "Could not get valid location. Please retry.", "error");
+    } finally {
+      setLocationRequesting(false);
+    }
+  }, [geo, showSnack]);
 
   const handleDenyLocation = useCallback(() => { setPunchState({ stage: null, mode: "in" }); geo.reset(); }, [geo]);
 
@@ -880,7 +891,7 @@ export default function Attendance() {
     const mode = punchState.mode;
     if (mode === "in"  && hasPunchedIn)  { showSnack("Already punched in.",  "warning"); setPunchState({ stage: null, mode: "in" }); return; }
     if (mode === "out" && hasPunchedOut) { showSnack("Already punched out.", "info");    setPunchState({ stage: null, mode: "in" }); return; }
-    if (!geo.latitude || !geo.longitude) { showSnack("Could not get valid location. Please retry.", "error"); return; }
+    if (geo.latitude == null || geo.longitude == null) { showSnack("Could not get valid location. Please retry.", "error"); return; }
 
     setPunchLoading(true);
     try {

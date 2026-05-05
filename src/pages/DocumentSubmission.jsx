@@ -4359,6 +4359,15 @@ export default function DocumentSubmissionPage() {
                         py: 2,
                       }}
                     >
+                      Assigned To
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        fontWeight: 600,
+                        py: 2,
+                      }}
+                    >
                       Actions
                     </TableCell>
                   </TableRow>
@@ -4466,6 +4475,26 @@ export default function DocumentSubmissionPage() {
                               />
                             </Tooltip>
                           </TableCell>
+                          <TableCell>
+                            {document.assignedUser || document.assignedManager ? (
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {document.assignedUser
+                                    ? `${document.assignedUser.firstName || ""} ${document.assignedUser.lastName || ""}`.trim()
+                                    : `${document.assignedManager?.firstName || ""} ${document.assignedManager?.lastName || ""}`.trim()}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {document.assignedUser
+                                    ? document.assignedUser.role || "Assigned User"
+                                    : document.assignedManager?.role || "Manager"}
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                Unassigned
+                              </Typography>
+                            )}
+                          </TableCell>
 
                           <TableCell>
                             <Stack direction="row" spacing={1}>
@@ -4529,7 +4558,7 @@ export default function DocumentSubmissionPage() {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={6}>
                         <EmptyState
                           onClearFilters={handleClearFilters}
                           hasFilters={activeFilterCount > 0}
