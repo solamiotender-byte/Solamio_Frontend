@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/static/css/main.796d6913.css",
+    "main.js": "/static/js/main.e715fb25.js",
+    "static/media/logo.png": "/static/media/logo.a6912875ed1fdec1eebc.png",
+    "static/media/vanurtech-logo.svg": "/static/media/vanurtech-logo.1323fec34c9b6475ae80bf666616ca07.svg",
+    "index.html": "/index.html",
+    "main.796d6913.css.map": "/static/css/main.796d6913.css.map",
+    "main.e715fb25.js.map": "/static/js/main.e715fb25.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.796d6913.css",
+    "static/js/main.e715fb25.js"
+  ]
+}

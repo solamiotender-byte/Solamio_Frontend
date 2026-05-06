@@ -18,7 +18,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { stopTracking, isCurrentlyTracking } from "../utils/Locationtracker.js";
 import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
-const BASE_URL = "https://solar-backend-29z1.onrender.com/api/v1";
+const BASE_URL = "https://solar-backend-6vaa.onrender.com/api/v1";
 const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 const PRIMARY = "#4569ea";
@@ -49,7 +49,18 @@ const apiFetch = async (path, params = {}, options = {}) => {
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(options.method === "POST" ? { body: JSON.stringify(params) } : {}),
   });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || `HTTP ${res.status}`); }
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
+    throw new Error(e.message || `HTTP ${res.status}`);
+  }
   return res.json();
 };
 
@@ -150,6 +161,26 @@ const getRecentDays = () => {
 
 const isSystemStartLocationVisit = (visit) =>
   (visit?.locationName || "").trim().toLowerCase() === "start location";
+
+const isVisitInDateRange = (visit, dateRange) => {
+  const range = getDateRange(dateRange);
+  if (!range.startDate || !range.endDate) return true;
+
+  const rawDate = visit?.visitDate || visit?.createdAt;
+  if (!rawDate) return false;
+
+  const visitTime = new Date(rawDate).getTime();
+  const startTime = new Date(range.startDate).getTime();
+  const endTime = new Date(range.endDate).getTime();
+
+  return (
+    Number.isFinite(visitTime) &&
+    Number.isFinite(startTime) &&
+    Number.isFinite(endTime) &&
+    visitTime >= startTime &&
+    visitTime <= endTime
+  );
+};
 
 // ─── Route Connector ──────────────────────────────────────────────────────────
 // Shows the travel segment between two visits: distance + travel time
@@ -834,7 +865,11 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   }, [targetUserId, fetchVisits, fetchGpsDistance, fetchPunchInStatus, fetchLatestBattery]);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
-  const visibleVisits   = visits.filter((visit) => !isSystemStartLocationVisit(visit));
+  const visibleVisits   = visits.filter(
+    (visit) =>
+      !isSystemStartLocationVisit(visit) &&
+      isVisitInDateRange(visit, filters.dateRange),
+  );
   const totalDist       = visibleVisits.reduce((s, v) => s + (v.distanceFromPreviousKm ?? v.distance ?? 0), 0);
   const avgTime         = visibleVisits.length
     ? Math.round(visibleVisits.reduce((s, v) => s + (v.timeSpentMinutes || 0), 0) / visibleVisits.length)

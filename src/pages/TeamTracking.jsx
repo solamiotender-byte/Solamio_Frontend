@@ -14,13 +14,25 @@
   import axios from "axios";
   import { useNavigate } from "react-router-dom";
 
-  const API = "https://solar-backend-29z1.onrender.com";
+  const API = "https://solar-backend-6vaa.onrender.com";
   const PRIMARY = "#136dec";
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem("token")}`,
   });
+
+  const handleAuthError = (error) => {
+    if (error?.response?.status !== 401) return false;
+
+    localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+    return true;
+  };
 
   const formatTime = (iso) =>
     iso
@@ -239,6 +251,7 @@
           });
           rawUsers = usersRes.data?.result?.users || usersRes.data?.data?.users || [];
         } catch (e) {
+          if (handleAuthError(e)) return;
           console.error("Users fetch failed:", e.message);
         }
 
@@ -250,6 +263,7 @@
           });
           attendances = attRes.data?.result?.attendances || attRes.data?.data?.attendances || [];
         } catch (e) {
+          if (handleAuthError(e)) return;
           console.error("Attendance fetch failed:", e.message);
         }
 
@@ -261,6 +275,7 @@ try {
   });
   visits = visitsRes.data?.result?.visits || visitsRes.data?.data?.visits || [];
 } catch (e) {
+  if (handleAuthError(e)) return;
   console.error("Visits fetch failed:", e.message);
 }
 
@@ -284,6 +299,7 @@ try {
             });
           }
         } catch (e) {
+          if (handleAuthError(e)) return;
           console.error("Battery fetch failed:", e.message);
         }
 

@@ -368,6 +368,12 @@ const getAssignedPerson = (record) => {
   };
 };
 
+const getRegistrationDateValue = (registration) =>
+  registration?.dateOfRegistration ||
+  registration?.registrationDate ||
+  registration?.createdAt ||
+  null;
+
 // ========== MOBILE FILTER DRAWER ==========
 const MobileFilterDrawer = ({
   open,
@@ -1019,7 +1025,7 @@ const MobileRegistrationCard = ({
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
             <CalendarToday sx={{ fontSize: 14, color: alpha(PRIMARY, 0.6) }} />
             <Typography variant="body2" fontWeight={500}>
-              {formatDate(registration.dateOfRegistration, "dd MMM yyyy")}
+              {formatDate(getRegistrationDateValue(registration), "dd MMM yyyy")}
             </Typography>
             <FiberManualRecord sx={{ fontSize: 4, color: "text.disabled" }} />
             <SolarPower sx={{ fontSize: 14, color: alpha(PRIMARY, 0.6) }} />
@@ -1609,7 +1615,7 @@ const ViewRegistrationModal = ({
                   Registration Date
                 </Typography>
                 <Typography variant="body2" fontWeight={500}>
-                  {formatDate(registration.dateOfRegistration, "dd MMM yyyy")}
+                  {formatDate(getRegistrationDateValue(registration), "dd MMM yyyy")}
                 </Typography>
               </Box>
               <Divider />
@@ -3106,11 +3112,10 @@ export default function RegistrationPage() {
 
         filtered = filtered.filter((reg) => {
           try {
-            const regDate = reg.dateOfRegistration
-              ? parseISO(reg.dateOfRegistration)
-              : reg.createdAt
-                ? parseISO(reg.createdAt)
-                : null;
+            const registrationDateValue = getRegistrationDateValue(reg);
+            const regDate = registrationDateValue
+              ? parseISO(registrationDateValue)
+              : null;
             if (!regDate || !isValid(regDate)) return false;
             return isWithinInterval(regDate, { start, end });
           } catch {
@@ -3128,6 +3133,10 @@ export default function RegistrationPage() {
             sortConfig.key === "dateOfRegistration" ||
             sortConfig.key === "createdAt"
           ) {
+            if (sortConfig.key === "dateOfRegistration") {
+              aVal = getRegistrationDateValue(a);
+              bVal = getRegistrationDateValue(b);
+            }
             aVal = aVal ? parseISO(aVal) : new Date(0);
             bVal = bVal ? parseISO(bVal) : new Date(0);
           } else if (sortConfig.key === "firstName") {
@@ -4163,7 +4172,7 @@ export default function RegistrationPage() {
                             </Stack>
                           </TableCell>
                           <TableCell>
-                            {formatDate(registration.dateOfRegistration, "dd MMM yyyy")}
+                            {formatDate(getRegistrationDateValue(registration), "dd MMM yyyy")}
                           </TableCell>
                           <TableCell>
                             <Stack direction="row" alignItems="center" spacing={1}>

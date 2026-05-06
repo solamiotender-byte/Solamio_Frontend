@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance
 const axiosInstance = axios.create({
-  baseURL: 'https://solar-backend-29z1.onrender.com/api/v1',
+  baseURL: 'https://solar-backend-6vaa.onrender.com/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -41,6 +41,10 @@ axiosInstance.interceptors.response.use(
         
         if (!refreshToken) {
           // No refresh token, logout user
+          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('user');
           window.location.href = '/login';
           return Promise.reject(error);
         }
@@ -63,6 +67,8 @@ axiosInstance.interceptors.response.use(
       } catch (refreshError) {
         // Refresh failed, logout user
         localStorage.removeItem('token');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('accessToken');
         localStorage.removeItem('user');
         localStorage.removeItem('refreshToken');
         window.location.href = '/login';
