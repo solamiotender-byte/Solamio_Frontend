@@ -9,11 +9,12 @@ import {
   Box, Typography, Avatar, Chip, TextField, InputAdornment, Button,
   IconButton, Tooltip, LinearProgress, Divider, CircularProgress,
   Dialog, DialogContent, DialogTitle, DialogActions,
+  Switch, FormControlLabel,
 } from "@mui/material";
 import {
   Search, Refresh, AccessTime, CheckCircle, Cancel, LocationOn, Person,
   BatteryChargingFull, BatteryAlert, Battery20, Battery50, Battery80,
-  CalendarToday, Celebration,
+  CalendarToday, Celebration, Settings,
 } from "@mui/icons-material";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -635,7 +636,28 @@ const TeamAttendance = () => {
   const [holidayDate, setHolidayDate] = useState(getTodayDateInput());
   const [holidayReason, setHolidayReason] = useState("");
   const [holidaySubmitting, setHolidaySubmitting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [attendanceSettings, setAttendanceSettings] = useState({
+    officePunchInTime: "10:00",
+    officePunchOutTime: "19:00",
+    blockEarlyPunchIn: true,
+    autoPunchOutEnabled: true,
+  });
   const [actionMessage, setActionMessage] = useState({ type: "", text: "" });
+
+  const loadAttendanceSettings = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API}/api/v1/attendance/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = res.data?.result || res.data?.data || {};
+      setAttendanceSettings((prev) => ({ ...prev, ...result }));
+    } catch (error) {
+      console.error("Attendance settings fetch error:", error.message);
+    }
+  }, []);
 
   const fetchData = useCallback(async (showSpinner = true) => {
   if (showSpinner) setLoading(true);
@@ -770,6 +792,10 @@ const TeamAttendance = () => {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (canCreateHoliday) loadAttendanceSettings();
+  }, [canCreateHoliday, loadAttendanceSettings]);
+
   // Auto-refresh every 60 seconds
   useEffect(() => {
     if (!isTodayValue(selectedDate)) return undefined;
@@ -814,6 +840,35 @@ const TeamAttendance = () => {
       });
     } finally {
       setHolidaySubmitting(false);
+    }
+  };
+
+  const openSettingsDialog = () => {
+    setActionMessage({ type: "", text: "" });
+    loadAttendanceSettings();
+    setSettingsOpen(true);
+  };
+
+  const saveAttendanceSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.put(
+        `${API}/api/v1/attendance/settings`,
+        attendanceSettings,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const result = res.data?.result || res.data?.data || {};
+      setAttendanceSettings((prev) => ({ ...prev, ...result }));
+      setActionMessage({ type: "success", text: "Attendance settings saved." });
+      setSettingsOpen(false);
+    } catch (error) {
+      setActionMessage({
+        type: "error",
+        text: error?.response?.data?.message || error.message || "Failed to save attendance settings.",
+      });
+    } finally {
+      setSettingsSaving(false);
     }
   };
 
@@ -941,23 +996,42 @@ const TeamAttendance = () => {
             }}
           />
           {canCreateHoliday && (
-            <Button
-              onClick={openHolidayDialog}
-              startIcon={<Celebration />}
-              sx={{
-                borderRadius: "12px",
-                px: 1.6,
-                py: 1,
-                color: "#fff",
-                border: "1px solid rgba(255,255,255,0.22)",
-                bgcolor: "rgba(255,255,255,0.14)",
-                textTransform: "none",
-                fontWeight: 700,
-                "&:hover": { bgcolor: "rgba(255,255,255,0.24)" },
-              }}
-            >
-              Add Holiday
-            </Button>
+            <>
+              <Button
+                onClick={openSettingsDialog}
+                startIcon={<Settings />}
+                sx={{
+                  borderRadius: "12px",
+                  px: 1.6,
+                  py: 1,
+                  color: "#fff",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  bgcolor: "rgba(255,255,255,0.14)",
+                  textTransform: "none",
+                  fontWeight: 700,
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.24)" },
+                }}
+              >
+                Settings
+              </Button>
+              <Button
+                onClick={openHolidayDialog}
+                startIcon={<Celebration />}
+                sx={{
+                  borderRadius: "12px",
+                  px: 1.6,
+                  py: 1,
+                  color: "#fff",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  bgcolor: "rgba(255,255,255,0.14)",
+                  textTransform: "none",
+                  fontWeight: 700,
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.24)" },
+                }}
+              >
+                Add Holiday
+              </Button>
+            </>
           )}
           <Tooltip title="Refresh attendance">
             <IconButton
@@ -1182,6 +1256,97 @@ const TeamAttendance = () => {
             }}
           >
             {holidaySubmitting ? "Saving..." : "Save Holiday"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={settingsOpen}
+        onClose={() => !settingsSaving && setSettingsOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: "18px" } }}
+      >
+        <DialogTitle sx={{ fontWeight: 800, color: "#0f172a", pb: 1 }}>
+          Attendance Settings
+        </DialogTitle>
+        <DialogContent sx={{ pt: "8px !important" }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Office Punch In Time"
+              type="time"
+              value={attendanceSettings.officePunchInTime}
+              onChange={(e) =>
+                setAttendanceSettings((prev) => ({
+                  ...prev,
+                  officePunchInTime: e.target.value,
+                }))
+              }
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Office Punch Out Time"
+              type="time"
+              value={attendanceSettings.officePunchOutTime}
+              onChange={(e) =>
+                setAttendanceSettings((prev) => ({
+                  ...prev,
+                  officePunchOutTime: e.target.value,
+                }))
+              }
+              InputLabelProps={{ shrink: true }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={attendanceSettings.blockEarlyPunchIn}
+                  onChange={(e) =>
+                    setAttendanceSettings((prev) => ({
+                      ...prev,
+                      blockEarlyPunchIn: e.target.checked,
+                    }))
+                  }
+                />
+              }
+              label="Block punch in before office time"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={attendanceSettings.autoPunchOutEnabled}
+                  onChange={(e) =>
+                    setAttendanceSettings((prev) => ({
+                      ...prev,
+                      autoPunchOutEnabled: e.target.checked,
+                    }))
+                  }
+                />
+              }
+              label="Auto punch out at office time"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button
+            onClick={() => setSettingsOpen(false)}
+            disabled={settingsSaving}
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={saveAttendanceSettings}
+            disabled={settingsSaving}
+            startIcon={settingsSaving ? <CircularProgress size={14} color="inherit" /> : <Settings />}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              borderRadius: "10px",
+              background: "linear-gradient(135deg, #4f46e5, #7c3aed)",
+            }}
+          >
+            {settingsSaving ? "Saving..." : "Save Settings"}
           </Button>
         </DialogActions>
       </Dialog>

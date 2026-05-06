@@ -1005,9 +1005,15 @@ export default function Attendance() {
       date.setHours(0, 0, 0, 0);
       const dateMs = date.getTime();
 
-      const att = calendarAttendances?.find(
+      const dayAttendances = (calendarAttendances || []).filter(
         (a) => new Date(a.date).toDateString() === date.toDateString()
       );
+      const att =
+        dayAttendances.find((a) => a.status === "leave") ||
+        dayAttendances.find((a) => a.status === "holiday") ||
+        dayAttendances.find((a) => a.status === "absent") ||
+        dayAttendances.find((a) => a.status === "late") ||
+        dayAttendances[0];
 
       const status = resolveCalendarStatus(dateMs, att, todayMs, joinDateMs);
       days.push({ day: i, date, status, att });
@@ -1441,6 +1447,7 @@ export default function Attendance() {
                     ["Present",  SUCCESS,   "#dcfce7"],
                     ["Late",     WARNING,   "#fef9c3"],
                     ["Absent",   DANGER,    "#fee2e2"],
+                    ["Leave",    "#a855f7", "#f3e8ff"],
                     ["Holiday",  "#3b82f6", "#dbeafe"],
                   ].map(([l, dotColor, bg]) => (
                     <Grid item xs={6} key={l}>

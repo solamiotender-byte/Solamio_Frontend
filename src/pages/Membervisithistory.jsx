@@ -20,6 +20,17 @@ import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
 const BASE_URL = "https://solar-backend-6vaa.onrender.com/api/v1";
 const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
+const PHOTO_BACKEND_ORIGINS = [
+  BACKEND_ORIGIN,
+  "https://solar-backend-29z1.onrender.com",
+].filter((origin, index, list) => origin && list.indexOf(origin) === index);
+const KNOWN_BACKEND_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "solar-backend-6vaa.onrender.com",
+  "solar-backend-29z1.onrender.com",
+]);
 
 const PRIMARY = "#4569ea";
 const SUCCESS = "#22c55e";
@@ -76,26 +87,60 @@ const normalizePhotoUrl = (rawUrl) => {
     return trimmedUrl;
   }
 
+  if (trimmedUrl.startsWith("/public/")) {
+    return `${BACKEND_ORIGIN}${trimmedUrl}`;
+  }
+
+  if (trimmedUrl.startsWith("/uploads/")) {
+    return `${BACKEND_ORIGIN}/public${trimmedUrl}`;
+  }
+
   if (trimmedUrl.startsWith("/")) {
     return `${BACKEND_ORIGIN}${trimmedUrl}`;
   }
 
   if (!/^https?:\/\//i.test(trimmedUrl)) {
-    return `${BACKEND_ORIGIN}/${trimmedUrl.replace(/^\/+/, "")}`;
+    const cleanPath = trimmedUrl.replace(/^\/+/, "");
+    return `${BACKEND_ORIGIN}/${cleanPath.startsWith("uploads/") ? "public/" : ""}${cleanPath}`;
   }
 
   try {
     const parsedUrl = new URL(trimmedUrl);
-    if (
-      window.location.hostname === "localhost" &&
-      parsedUrl.pathname.startsWith("/public/")
-    ) {
+    if (KNOWN_BACKEND_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname.startsWith("/public/")) {
       return `${BACKEND_ORIGIN}${parsedUrl.pathname}`;
+    }
+    if (KNOWN_BACKEND_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname.startsWith("/uploads/")) {
+      return `${BACKEND_ORIGIN}/public${parsedUrl.pathname}`;
     }
     return parsedUrl.toString();
   } catch {
     return trimmedUrl;
   }
+};
+
+const getPhotoUrlCandidates = (rawUrl) => {
+  const primaryUrl = normalizePhotoUrl(rawUrl);
+  if (!primaryUrl) return [];
+
+  const candidates = [primaryUrl];
+  try {
+    const parsedUrl = new URL(primaryUrl);
+    if (
+      KNOWN_BACKEND_HOSTS.has(parsedUrl.hostname) &&
+      (parsedUrl.pathname.startsWith("/public/") || parsedUrl.pathname.startsWith("/uploads/"))
+    ) {
+      const publicPath = parsedUrl.pathname.startsWith("/uploads/")
+        ? `/public${parsedUrl.pathname}`
+        : parsedUrl.pathname;
+      PHOTO_BACKEND_ORIGINS.forEach((origin) => {
+        candidates.push(`${origin}${publicPath}`);
+      });
+    }
+  } catch {
+    // Keep only the normalized URL for non-URL values.
+  }
+
+  return candidates.filter((url, index, list) => url && list.indexOf(url) === index);
 };
 
 const getDateRange = (r) => {
@@ -319,16 +364,23 @@ const RouteConnector = ({ visit }) => {
 };
 
 // ─── Visit Card ───────────────────────────────────────────────────────────────
-const VisitCard = ({ visit: v, index, isLast }) => {
+const VisitCard = ({ visit: v, index, isLast, fixedBatteryInfo, fixedBatteryChip }) => {
   const cur = v.status === "InProgress";
   const [imgOpen, setImgOpen] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState(0);
 
-  const photoUrl = normalizePhotoUrl(
+  const photoUrls = getPhotoUrlCandidates(
     v.photos?.[0]?.url
     || (typeof v.photos?.[0] === "string" ? v.photos[0] : null)
     || v.photo
     || null
   );
+  const photoUrl = photoUrls[photoIndex] || null;
+  const handlePhotoError = () => {
+    setPhotoIndex((current) =>
+      current + 1 < photoUrls.length ? current + 1 : current,
+    );
+  };
 
   const address = (() => {
     if (!v.address) return "";
@@ -386,6 +438,16 @@ const VisitCard = ({ visit: v, index, isLast }) => {
         {cur && (
           <Chip label="In Progress" size="small"
             sx={{ bgcolor: alpha(SUCCESS, 0.1), color: SUCCESS, fontWeight: 700, fontSize: "0.6rem", height: 18, mb: 0.5 }} />
+        )}
+
+        {fixedBatteryInfo?.percentage !== null && fixedBatteryInfo?.percentage !== undefined && (
+          <Box sx={{ mb: 0.6 }}>
+            <Chip
+              size="small"
+              label={`${fixedBatteryChip.label}${fixedBatteryInfo.isCharging ? " • Charging" : ""}`}
+              sx={{ bgcolor: fixedBatteryChip.bg, color: fixedBatteryChip.color, fontWeight: 700, border: `1px solid ${fixedBatteryChip.border}`, height: 22, fontSize: "0.68rem" }}
+            />
+          </Box>
         )}
 
         {address && (
@@ -456,7 +518,7 @@ const VisitCard = ({ visit: v, index, isLast }) => {
               "&:hover": { transform: "scale(1.05)", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", borderColor: PRIMARY },
             }}
           >
-            <Box component="img" src={photoUrl} alt="Visit photo"
+            <Box component="img" src={photoUrl} alt="Visit photo" onError={handlePhotoError}
               sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </Box>
 
@@ -493,6 +555,7 @@ const VisitCard = ({ visit: v, index, isLast }) => {
               )}
               <Box
                 component="img" src={photoUrl} alt="Visit photo"
+                onError={handlePhotoError}
                 onClick={(e) => e.stopPropagation()}
                 sx={{ maxWidth: "95vw", maxHeight: "90vh", borderRadius: "12px", objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }}
               />
@@ -642,6 +705,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   const [locateTrigger,    setLocateTrigger]    = useState(0);
   const [locating,         setLocating]         = useState(false);
   const [gpsDistance,      setGpsDistance]      = useState(null);
+  const [mapDistance,      setMapDistance]      = useState(null);
   const [autoVisitToast,   setAutoVisitToast]   = useState(null);
   const [dwellInfo,        setDwellInfo]        = useState(null);
   const [liveBatteryInfo,  setLiveBatteryInfo]  = useState({ percentage: null, isCharging: false, recordedAt: null });
@@ -678,6 +742,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   useEffect(() => {
     setLiveBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
     setPunchBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
+    setMapDistance(null);
   }, [targetUserId]);
 
   const fetchPunchInStatus = useCallback(async () => {
@@ -709,10 +774,16 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
           batterySnapshot?.percentage !== undefined && batterySnapshot?.percentage !== null
             ? Number(batterySnapshot.percentage)
             : null;
-        setPunchBatteryInfo({
-          percentage: Number.isFinite(normalizedPercentage) ? normalizedPercentage : null,
-          isCharging: batterySnapshot?.isCharging ?? false,
-          recordedAt: batterySnapshot?.recordedAt || att.punchIn?.time || null,
+        setPunchBatteryInfo(prev => {
+          if (!Number.isFinite(normalizedPercentage) && prev.percentage !== null) {
+            return prev;
+          }
+
+          return {
+            percentage: Number.isFinite(normalizedPercentage) ? normalizedPercentage : null,
+            isCharging: batterySnapshot?.isCharging ?? false,
+            recordedAt: batterySnapshot?.recordedAt || att.punchIn?.time || null,
+          };
         });
         if (out && att.punchOut?.time) {
           setPunchOutLocation({
@@ -871,6 +942,9 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
       isVisitInDateRange(visit, filters.dateRange),
   );
   const totalDist       = visibleVisits.reduce((s, v) => s + (v.distanceFromPreviousKm ?? v.distance ?? 0), 0);
+  const mapDistanceKm   = Number(mapDistance?.totalKm || 0);
+  const gpsDistanceKm   = Number(gpsDistance?.totalKm || 0);
+  const displayDistanceKm = mapDistanceKm > 0 ? mapDistanceKm : gpsDistanceKm > 0 ? gpsDistanceKm : totalDist;
   const avgTime         = visibleVisits.length
     ? Math.round(visibleVisits.reduce((s, v) => s + (v.timeSpentMinutes || 0), 0) / visibleVisits.length)
       : 0;
@@ -885,7 +959,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   // Keep newest visits first in the timeline.
   const sortedVisits = visibleVisits;
   const currentBatteryInfo = liveBatteryInfo.percentage !== null ? liveBatteryInfo : punchBatteryInfo;
-  const timelineBatteryInfo = punchBatteryInfo.percentage !== null ? punchBatteryInfo : liveBatteryInfo;
+  const timelineBatteryInfo = punchBatteryInfo;
   const currentBatteryChip = getBatteryChipStyle(currentBatteryInfo.percentage);
   const timelineBatteryChip = getBatteryChipStyle(timelineBatteryInfo.percentage);
   const batteryInfo = currentBatteryInfo;
@@ -1061,6 +1135,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   isOwner={!isAdminView}
   height="100%"
   locateTrigger={locateTrigger}
+  onDistanceChange={setMapDistance}
   punchInLocation={punchInLocation}
   visits={visibleVisits} 
   selectedDate={
@@ -1086,12 +1161,12 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                 </Box>
                 {loading ? <Skeleton width={60} height={32} /> : (
                   <>
-                  <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px", lineHeight: 1 }}>
-  {(gpsDistance?.totalKm ?? totalDist).toFixed(2)}{" "}
+<Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px", lineHeight: 1 }}>
+  {displayDistanceKm.toFixed(2)}{" "}
   <Typography component="span" sx={{ fontSize: "0.75rem", fontWeight: 400, color: "#94a3b8" }}>km</Typography>
 </Typography>
 <Typography sx={{ fontSize: "0.65rem", color: "#94a3b8", mt: 0.5 }}>GPS distance</Typography>
-{totalDist > 0 && (
+{totalDist >= 0.05 && (
   <Typography sx={{ fontSize: "0.65rem", color: alpha(PRIMARY, 0.6), mt: 0.25 }}>
     {totalDist.toFixed(1)} km road
   </Typography>
@@ -1182,10 +1257,10 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                 </Tooltip>
               </Box>
 
-              {!loading && totalDist > 0 && (
+              {!loading && displayDistanceKm >= 0.005 && (
                 <Chip
                   icon={<Route sx={{ fontSize: "13px !important" }} />}
-                  label={`${(gpsDistance?.totalKm ?? totalDist).toFixed(2)} km travelled`}
+                  label={`${displayDistanceKm.toFixed(2)} km travelled`}
                   size="small"
                   sx={{ mb: 0.75, bgcolor: alpha(PRIMARY, 0.08), color: PRIMARY, fontWeight: 700, fontSize: "0.7rem", height: 22, "& .MuiChip-icon": { color: PRIMARY } }}
                 />
@@ -1340,6 +1415,8 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                         visit={v}
                         index={i}
                         isLast={i === sortedVisits.length - 1 && !hasPunchedOut}
+                        fixedBatteryInfo={timelineBatteryInfo}
+                        fixedBatteryChip={timelineBatteryChip}
                       />
                       {/* Route connector AFTER this visit, pointing to next visit */}
                       {i < sortedVisits.length - 1 && sortedVisits[i + 1]?.distanceFromPreviousKm > 0 && (
@@ -1361,6 +1438,15 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                           <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched Out</Typography>
                           <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchOutLocation.time)}</Typography>
                         </Box>
+                        {timelineBatteryInfo.percentage !== null && (
+                          <Box sx={{ mb: 0.8 }}>
+                            <Chip
+                              size="small"
+                              label={`${timelineBatteryChip.label}${timelineBatteryInfo.isCharging ? " • Charging" : ""}`}
+                              sx={{ bgcolor: timelineBatteryChip.bg, color: timelineBatteryChip.color, fontWeight: 700, border: `1px solid ${timelineBatteryChip.border}`, height: 24 }}
+                            />
+                          </Box>
+                        )}
                         {punchOutLocation?.address && (
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4 }}>
                             <LocationOn sx={{ fontSize: 12, color: WARNING, mt: "2px", flexShrink: 0 }} />

@@ -37,6 +37,7 @@ import {
   AccountTree,
   Notifications,
   Logout,
+  EventBusy,
   ChevronLeft,
   ChevronRight,
   Menu as MenuIcon,
@@ -162,6 +163,12 @@ const Sidebar = ({ open, toggleDrawer, onClose }) => {
         path: ["Head_office", "ZSM", "ASM"].includes(user?.role)
           ? "/team-attendance"
           : "/attendance",
+        roles: ["Head_office", "ZSM", "ASM", "TEAM"],
+      },
+      {
+        text: "Leave Management",
+        icon: <EventBusy />,
+        path: "/leave-management",
         roles: ["Head_office", "ZSM", "ASM", "TEAM"],
       },
       {

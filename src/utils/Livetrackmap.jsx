@@ -135,6 +135,7 @@ export default function LiveTrackingMap({
   height          = "400px",
   locateTrigger   = 0,
   onPointsChange,
+  onDistanceChange,
   isOwner         = true,
   punchInLocation = null,
   selectedDate    = null, 
@@ -173,6 +174,16 @@ const visitMkRef = useRef([]);
   const isLive = isPunchedIn && !hasPunchedOut;
   const isTodaySelected =
     !selectedDate || selectedDate === new Date().toISOString().split("T")[0];
+
+  const updateDistanceStats = useCallback((km, points = 0) => {
+    const normalizedKm = Number.isFinite(Number(km)) ? Number(km) : 0;
+    const normalizedPoints = Number.isFinite(Number(points)) ? Number(points) : 0;
+    setTotalKm(normalizedKm);
+    setPointCount(normalizedPoints);
+    if (typeof onDistanceChange === "function") {
+      onDistanceChange({ totalKm: normalizedKm, totalPoints: normalizedPoints });
+    }
+  }, [onDistanceChange]);
 
   const withProgrammaticViewport = useCallback((fn) => {
     suppressViewportEventsRef.current = true;
@@ -666,8 +677,7 @@ useEffect(() => {
     }
 
     const km = calcFilteredKm(points);
-    setTotalKm(km);
-    setPointCount(points.length);
+    updateDistanceStats(km, points.length);
     console.log(`[drawTrail] ${points.length} points — ${km.toFixed(3)} km`);
   }
 
@@ -744,7 +754,7 @@ useEffect(() => {
   const fetchTotalKm = useCallback(async () => {
     if (!userId) return;
     if (allPtsRef.current.length >= 2) {
-      setTotalKm(calcFilteredKm(allPtsRef.current));
+      updateDistanceStats(calcFilteredKm(allPtsRef.current), allPtsRef.current.length);
       return;
     }
     try {
@@ -759,11 +769,12 @@ useEffect(() => {
       if (!res.ok) return;
       const data = await res.json();
       const dbKm = data?.data?.totalKm ?? data?.result?.totalKm ?? data?.totalKm ?? 0;
+      const dbPoints = data?.data?.totalPoints ?? data?.result?.totalPoints ?? data?.totalPoints ?? 0;
       if (allPtsRef.current.length < 2) {
-        setTotalKm(Math.round(dbKm * 1000) / 1000);
+        updateDistanceStats(Math.round(dbKm * 1000) / 1000, dbPoints);
       }
     } catch { /* non-fatal */ }
-  }, [userId, selectedDate]);
+  }, [userId, selectedDate, updateDistanceStats]);
 
   const loadTrailFromDB = useCallback(async (options = {}) => {
     const { autoFit = false } = options;
@@ -831,10 +842,9 @@ useEffect(() => {
     snappedTrailCacheRef.current = { key: "", path: [] };
     drawRequestSeqRef.current += 1;
     userAdjustedViewportRef.current = false;
-    setTotalKm(0);
-    setPointCount(0);
+    updateDistanceStats(0, 0);
     loadTrailFromDB({ autoFit: true });
-  }, [loadTrailFromDB]);
+  }, [loadTrailFromDB, updateDistanceStats]);
 
   useEffect(() => {
     if (!userId || !mapLoaded || !isLive || !isTodaySelected) return;

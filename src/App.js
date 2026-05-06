@@ -35,6 +35,7 @@ import TeamTracking from "./pages/TeamTracking";
 import MemberVisitHistory from "./pages/Membervisithistory";
 import TeamAttendance from "./pages/TeamAttendance";
 import Notifications from "./pages/Notifications";
+import LeaveManagement from "./pages/LeaveManagement";
 
 const theme = createTheme({
   palette: {
@@ -144,6 +145,14 @@ function App() {
                           element={
                             <ProtectedRoute allowedRoles={["Head_office","ZSM","ASM"]}>
                               <TeamAttendance />
+                            </ProtectedRoute>
+                          }
+                        />
+                        <Route
+                          path="leave-management"
+                          element={
+                            <ProtectedRoute allowedRoles={["Head_office","ZSM","ASM","TEAM"]}>
+                              <LeaveManagement />
                             </ProtectedRoute>
                           }
                         />
