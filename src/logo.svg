@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 184" role="img" aria-labelledby="solarSoftwareTitle solarSoftwareDesc">
-  <title id="solarSoftwareTitle">Solar Software logo</title>
-  <desc id="solarSoftwareDesc">Solar Software logo with segmented circular mark, orange wordmark, and blue subtitle.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 184" role="img" aria-labelledby="solarCrmTitle solarCrmDesc">
+  <title id="solarCrmTitle">solarCRM logo</title>
+  <desc id="solarCrmDesc">solarCRM logo with segmented circular mark and blue orange wordmark.</desc>
   <defs>
     <linearGradient id="orangeFill" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#ff9c2a"/>
@@ -81,7 +81,7 @@
   </g>
 
   <g font-family="Arial, Helvetica, sans-serif">
-    <text x="165" y="118" font-size="112" font-weight="700" fill="url(#orangeFill)">Solar</text>
-    <text x="188" y="150" font-size="35" font-weight="700" fill="url(#blueFill)" letter-spacing="10">Software</text>
+    <text x="165" y="118" font-size="96" font-weight="700" fill="url(#orangeFill)">solar</text>
+    <text x="188" y="150" font-size="35" font-weight="700" fill="url(#blueFill)" letter-spacing="8">CRM</text>
   </g>
 </svg>

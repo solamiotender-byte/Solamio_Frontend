@@ -47,7 +47,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { useAuth } from "../contexts/AuthContext";
-import vanurtechLogo from "../assets/vanurtech-logo.svg";
+import solarCrmLogo from "../assets/solar_crm_icon_square.png";
 
 // ─── Color Constants ──────────────────────────────────────────────────────────
 const PRIMARY_COLOR = "#4569ea";
@@ -366,7 +366,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
           flexShrink: 0,
         }}
       >
-<Box component="img" src={vanurtechLogo} alt="Sahoo Construction & Solar logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
+<Box component="img" src={solarCrmLogo} alt="solarCRM logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
       </Box>
       {!effectiveCollapsed && (
         <Box sx={{ overflow: "hidden" }}>
@@ -376,7 +376,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}
           >
-          Solar 360
+          solarCRM
           </Typography>
           <Typography
             variant="caption"
@@ -416,7 +416,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             border: "2px solid rgba(255,255,255,0.28)",
           }}
         >
-          <Box component="img" src={vanurtechLogo} alt="Sahoo Construction & Solar logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
+          <Box component="img" src={solarCrmLogo} alt="solarCRM logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
         </Box>
         <Box>
           <Typography
@@ -425,7 +425,7 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
             fontWeight={800}
             sx={{ lineHeight: 1.2 }}
           >
-            Solar 360
+            solarCRM
           </Typography>
           <Typography
             variant="caption"
@@ -705,7 +705,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               border: "1.5px solid rgba(255,255,255,0.25)",
             }}
           >
-            <Box component="img" src={vanurtechLogo} alt="Sahoo Construction & Solar logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.35 }} />
+            <Box component="img" src={solarCrmLogo} alt="solarCRM logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.35 }} />
           </Box>
           <Typography
             variant="subtitle1"
@@ -716,7 +716,7 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
               fontSize: "1rem",
             }}
           >
-            Solar 360
+            solarCRM
           </Typography>
         </Box>
 

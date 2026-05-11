@@ -36,7 +36,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from "../contexts/AuthContext";
 
-const API = "https://solar-backend-6vaa.onrender.com/api/v1";
+const API = "https://vanurtech-solar-backend-1.onrender.com/api/v1";
 
 const getToken = () =>
   localStorage.getItem("token") ||

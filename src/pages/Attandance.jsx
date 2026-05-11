@@ -42,7 +42,7 @@ import {
 import { useSocket } from "../utils/Usesocket.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const API       = "https://solar-backend-6vaa.onrender.com";
+const API       = "https://vanurtech-solar-backend-1.onrender.com";
 const PRIMARY   = "#4569ea";
 const SECONDARY = "#1a237e";
 const SUCCESS   = "#22c55e";

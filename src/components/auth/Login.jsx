@@ -853,7 +853,7 @@ const Login = () => {
                   variant="caption"
                   sx={{ color: COLOR, fontWeight: 500 }}
                 >
-                   SCS360 CONNECT Mobile
+                   solarCRM Mobile
                 </Typography>
               </Box>
             )}
@@ -892,7 +892,7 @@ const Login = () => {
                   {/* Logo Image */}
                   <img
                     src={logo}
-                    alt="Sahoo Construction & Solar logo"
+                    alt="solarCRM logo"
                     style={{
                       width: "120%",
                       height: "120%",
@@ -911,7 +911,7 @@ const Login = () => {
                     letterSpacing: "0.5px",
                   }}
                 >
-                  Welcome Back to  SCS360 CONNECT
+                  Welcome Back to solarCRM
                 </Typography>
               </Box>
             </Fade>
@@ -1244,8 +1244,8 @@ const Login = () => {
                   lineHeight: 1.4,
                 }}
               >
-                {"\u00A9"} {new Date().getFullYear()}  SCS360 CONNECT Solar
-                Management System. All rights reserved.
+                {"\u00A9"} {new Date().getFullYear()} solarCRM.
+                All rights reserved.
                 <Typography
                   component="span"
                   variant="caption"
