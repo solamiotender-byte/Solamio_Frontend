@@ -18,7 +18,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { stopTracking, isCurrentlyTracking } from "../utils/Locationtracker.js";
 import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
-const BASE_URL = "https://vanurtech-solar-backend-1.onrender.com/api/v1";
+const BASE_URL = "  https://vanurtech-solar-backend-1.onrender.com/api/v1";
 const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
 const PHOTO_BACKEND_ORIGINS = [
   BACKEND_ORIGIN,

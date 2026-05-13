@@ -93,6 +93,13 @@ const STEPS = [
   { label: "Role Assignment", fields: ["role", "supervisor"] },
 ];
 
+const getPasswordChecks = (password = "") => ({
+  minLength: password.length >= 8,
+  uppercase: /[A-Z]/.test(password),
+  number: /\d/.test(password),
+  special: /[@$!%*?&]/.test(password),
+});
+
 export default function AddUserPage() {
   const navigate = useNavigate();
   const { fetchAPI, user: currentUser } = useAuth();
@@ -168,6 +175,38 @@ export default function AddUserPage() {
     }
   };
 
+  const renderPasswordHelperText = () => {
+    const checks = getPasswordChecks(formData.password);
+    const requirements = [
+      { key: "minLength", label: "At least 8 characters" },
+      { key: "uppercase", label: "One uppercase letter" },
+      { key: "number", label: "One number" },
+      { key: "special", label: "One special character" },
+    ];
+
+    return (
+      <Box sx={{ mt: 0.5 }}>
+        {requirements.map((item) => {
+          const passed = checks[item.key];
+          return (
+            <Typography
+              key={item.key}
+              component="div"
+              variant="caption"
+              sx={{
+                display: passed ? "none" : "block",
+                color: "error.main",
+                lineHeight: 1.4,
+              }}
+            >
+              {item.label}
+            </Typography>
+          );
+        })}
+      </Box>
+    );
+  };
+
   // Validate specific field
   const validateField = (field, value) => {
     const newErrors = { ...errors };
@@ -208,12 +247,13 @@ export default function AddUserPage() {
       case "password":
         if (!value) {
           newErrors.password = "Password is required";
-        } else if (value.length < 8) {
-          newErrors.password = "Minimum 8 characters required";
-        } else if (!/(?=.*[A-Z])(?=.*\d)/.test(value)) {
-          newErrors.password = "Include uppercase and number";
         } else {
-          delete newErrors.password;
+          const checks = getPasswordChecks(value);
+          if (!checks.minLength || !checks.uppercase || !checks.number || !checks.special) {
+            newErrors.password = "Password requirements are not complete";
+          } else {
+            delete newErrors.password;
+          }
         }
         break;
       case "confirmPassword":
@@ -225,6 +265,7 @@ export default function AddUserPage() {
           delete newErrors.confirmPassword;
         }
         break;
+      
       case "role":
         if (!value) {
           newErrors.role = "Role is required";
@@ -634,7 +675,7 @@ export default function AddUserPage() {
               onChange={(e) => handleInputChange("password", e.target.value)}
               onBlur={() => handleBlur("password")}
               error={touched.password && !!errors.password}
-              helperText={touched.password && errors.password}
+              helperText={touched.password ? renderPasswordHelperText() : null}
               required
               size={isMobile ? "small" : "medium"}
               disabled={loading}
@@ -722,8 +763,8 @@ export default function AddUserPage() {
               icon={<Info fontSize="small" />}
             >
               <Typography variant="body2">
-                Password must contain at least 8 characters, including one
-                uppercase letter and one number.
+                Password must contain at least 8 characters, one uppercase
+                letter, one number, and one special character.
               </Typography>
             </Alert>
           </Grid>
