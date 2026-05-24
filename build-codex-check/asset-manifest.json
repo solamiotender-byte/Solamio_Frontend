@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/static/css/main.796d6913.css",
+    "main.js": "/static/js/main.2fe459f2.js",
+    "static/media/logo.png": "/static/media/logo.44f0bf9e9d77d7e1f7c9.png",
+    "static/media/solar_crm_icon_square.png": "/static/media/solar_crm_icon_square.44f0bf9e9d77d7e1f7c9.png",
+    "index.html": "/index.html",
+    "main.796d6913.css.map": "/static/css/main.796d6913.css.map",
+    "main.2fe459f2.js.map": "/static/js/main.2fe459f2.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.796d6913.css",
+    "static/js/main.2fe459f2.js"
+  ]
+}

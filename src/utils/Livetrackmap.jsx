@@ -148,6 +148,9 @@ export default function LiveTrackingMap({
   const startMkRef = useRef(null);
   const liveMkRef  = useRef(null);
   const dotsRef    = useRef([]);
+  const auditPolyRef = useRef([]);
+  const auditPathCacheRef = useRef({});
+  const auditDrawSeqRef = useRef(0);
   const allPtsRef  = useRef([]);
   const snappedTrailCacheRef = useRef({ key: "", path: [] });
   const drawRequestSeqRef = useRef(0);
@@ -159,6 +162,7 @@ const visitMkRef = useRef([]);
   const [sockAck,    setSockAck]    = useState(null);
   const [totalKm,    setTotalKm]    = useState(0);
   const [pointCount, setPointCount] = useState(0);
+  const [verifiedDistance, setVerifiedDistance] = useState(null);
 
   const prevPunchedIn  = useRef(false);
   const prevPunchedOut = useRef(false);
@@ -293,7 +297,8 @@ useEffect(() => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
     const isInProgress = v.status === "InProgress";
-    const fillColor    = isInProgress ? "#22c55e" : "#4569ea";
+    const isAutoStop = v.autoDetected || v.status === "Auto Stop";
+    const fillColor = isAutoStop ? "#0ea5e9" : isInProgress ? "#22c55e" : "#4569ea";
     const label        = v.locationName || `Stop ${i + 1}`;
 
     // Custom SVG store pin
@@ -350,7 +355,7 @@ useEffect(() => {
           <div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;
                 background:${isInProgress ? "rgba(34,197,94,0.1)" : "rgba(69,105,234,0.1)"};
                 color:${fillColor}">
-            ${isInProgress ? "In Progress" : v.status || "Visited"}
+            ${isAutoStop ? `Stopped ${v.dwellMinutes || 15} min` : isInProgress ? "In Progress" : v.status || "Visited"}
           </div>
         </div>`,
     });
@@ -565,6 +570,111 @@ useEffect(() => {
     return finalPath;
   }
 
+  function clearAuditPolylines() {
+    auditDrawSeqRef.current += 1;
+    auditPolyRef.current.forEach((line) => line.setMap(null));
+    auditPolyRef.current = [];
+  }
+
+  function clearBaseTrailPolyline() {
+    polyRef.current.casing?.setMap(null);
+    polyRef.current.main?.setMap(null);
+    polyRef.current = { casing: null, main: null };
+  }
+
+  function getAuditColor(status) {
+    if (status === "payable") return "#16a34a";
+    if (status === "review") return "#f59e0b";
+    return "#dc2626";
+  }
+
+  function getAuditSegmentCacheKey(segment) {
+    const from = segment?.from;
+    const to = segment?.to;
+    return [
+      Number(from?.lat).toFixed(6),
+      Number(from?.lng).toFixed(6),
+      Number(to?.lat).toFixed(6),
+      Number(to?.lng).toFixed(6),
+    ].join("|");
+  }
+
+  async function getSnappedPathForAuditSegment(segment) {
+    const cacheKey = getAuditSegmentCacheKey(segment);
+    if (auditPathCacheRef.current[cacheKey]) return auditPathCacheRef.current[cacheKey];
+
+    const from = segment.from;
+    const to = segment.to;
+    const fallbackPath = [
+      { lat: Number(from.lat), lng: Number(from.lng) },
+      { lat: Number(to.lat), lng: Number(to.lng) },
+    ];
+
+    const gapMetres = distMetres(fallbackPath[0].lat, fallbackPath[0].lng, fallbackPath[1].lat, fallbackPath[1].lng);
+    if (gapMetres > SNAP_TO_ROADS_MAX_GAP_METRES) {
+      auditPathCacheRef.current[cacheKey] = null;
+      return null;
+    }
+
+    try {
+      const snappedPath = await fetchSnappedBatch(fallbackPath);
+      if (snappedPath.length >= 2) {
+        auditPathCacheRef.current[cacheKey] = snappedPath;
+        return snappedPath;
+      }
+    } catch (error) {
+      console.warn("[AuditRoute] Snap fallback:", error?.message || error);
+    }
+
+    auditPathCacheRef.current[cacheKey] = fallbackPath;
+    return fallbackPath;
+  }
+
+  async function drawAuditSegments(segments = []) {
+    clearAuditPolylines();
+    if (!gMapRef.current || !window.google?.maps || !Array.isArray(segments) || segments.length === 0) return;
+
+    clearBaseTrailPolyline();
+
+    const G = window.google.maps;
+    const map = gMapRef.current;
+    const requestSeq = ++auditDrawSeqRef.current;
+
+    for (const segment of segments) {
+      if (segment?.status === "rejected") continue;
+
+      const from = segment?.from;
+      const to = segment?.to;
+      if (!Number.isFinite(Number(from?.lat)) || !Number.isFinite(Number(from?.lng))) continue;
+      if (!Number.isFinite(Number(to?.lat)) || !Number.isFinite(Number(to?.lng))) continue;
+
+      const path = await getSnappedPathForAuditSegment(segment);
+      if (requestSeq !== auditDrawSeqRef.current) return;
+      if (!Array.isArray(path) || path.length < 2) continue;
+
+      auditPolyRef.current.push(
+        new G.Polyline({
+          path,
+          geodesic: true,
+          strokeColor: "#ffffff",
+          strokeOpacity: 0.9,
+          strokeWeight: 9,
+          map,
+          zIndex: 8,
+        }),
+        new G.Polyline({
+          path,
+          geodesic: true,
+          strokeColor: getAuditColor(segment.status),
+          strokeOpacity: segment.status === "rejected" ? 0.95 : 0.9,
+          strokeWeight: 5,
+          map,
+          zIndex: 9,
+        })
+      );
+    }
+  }
+
   async function drawTrail(points, options = {}) {
     const { autoFit = false, autoPanLive = false } = options;
     if (!gMapRef.current || !window.google?.maps || points.length === 0) return;
@@ -602,8 +712,8 @@ useEffect(() => {
           main: new G.Polyline({
             path,
             geodesic: true,
-            strokeColor: "#dc2626",
-            strokeOpacity: 0.92,
+            strokeColor: "#16a34a",
+            strokeOpacity: 0.65,
             strokeWeight: 4,
             map,
             zIndex: 7,
@@ -753,14 +863,26 @@ useEffect(() => {
 
   const fetchTotalKm = useCallback(async () => {
     if (!userId) return;
-    if (allPtsRef.current.length >= 2) {
-      updateDistanceStats(calcFilteredKm(allPtsRef.current), allPtsRef.current.length);
-      return;
-    }
     try {
        const dateParam = selectedDate && selectedDate.match(/^\d{4}-\d{2}-\d{2}$/)
         ? selectedDate
         : new Date().toISOString().split("T")[0];
+
+      const verifiedRes = await fetch(
+        `${API}/api/v1/location/verified-distance?salesmanId=${userId}&date=${dateParam}`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+
+      if (verifiedRes.ok) {
+        const verifiedData = await verifiedRes.json();
+        const verified = verifiedData?.data ?? verifiedData?.result ?? verifiedData;
+        const payableKm = Number(verified?.payableKm ?? 0);
+        const acceptedPoints = Number(verified?.acceptedPoints ?? verified?.totalPoints ?? 0);
+        setVerifiedDistance(verified);
+        updateDistanceStats(Math.round(payableKm * 1000) / 1000, acceptedPoints);
+        return;
+      }
+
       const res = await fetch(
         `${API}/api/v1/location/distance?salesmanId=${userId}&date=${dateParam}`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
@@ -770,10 +892,16 @@ useEffect(() => {
       const data = await res.json();
       const dbKm = data?.data?.totalKm ?? data?.result?.totalKm ?? data?.totalKm ?? 0;
       const dbPoints = data?.data?.totalPoints ?? data?.result?.totalPoints ?? data?.totalPoints ?? 0;
+      setVerifiedDistance(null);
       if (allPtsRef.current.length < 2) {
         updateDistanceStats(Math.round(dbKm * 1000) / 1000, dbPoints);
       }
-    } catch { /* non-fatal */ }
+    } catch {
+      if (allPtsRef.current.length >= 2) {
+        setVerifiedDistance(null);
+        updateDistanceStats(calcFilteredKm(allPtsRef.current), allPtsRef.current.length);
+      }
+    }
   }, [userId, selectedDate, updateDistanceStats]);
 
   const loadTrailFromDB = useCallback(async (options = {}) => {
@@ -831,17 +959,31 @@ useEffect(() => {
   }, [userId, mapLoaded, fetchTotalKm, selectedDate, isLive, isTodaySelected]);
 
   useEffect(() => {
+    if (!mapLoaded) return;
+    const segments = verifiedDistance?.auditSegments;
+    if (Array.isArray(segments) && segments.length > 0) {
+      drawAuditSegments(segments);
+    } else {
+      clearAuditPolylines();
+      if (allPtsRef.current.length > 0) {
+        drawTrail(allPtsRef.current, { autoFit: false, autoPanLive: false });
+      }
+    }
+  }, [mapLoaded, verifiedDistance]);
+
+  useEffect(() => {
     // ✅ Clear old trail and re-fetch whenever selectedDate changes
-    polyRef.current.casing?.setMap(null);
-    polyRef.current.main?.setMap(null);
-    polyRef.current = { casing: null, main: null };
+    clearBaseTrailPolyline();
     dotsRef.current.forEach(d => d.setMap(null));
     dotsRef.current = [];
+    clearAuditPolylines();
     if (liveMkRef.current) { liveMkRef.current.setMap(null); liveMkRef.current = null; }
     allPtsRef.current = [];
     snappedTrailCacheRef.current = { key: "", path: [] };
+    auditPathCacheRef.current = {};
     drawRequestSeqRef.current += 1;
     userAdjustedViewportRef.current = false;
+    setVerifiedDistance(null);
     updateDistanceStats(0, 0);
     loadTrailFromDB({ autoFit: true });
   }, [loadTrailFromDB, updateDistanceStats]);
@@ -1062,6 +1204,16 @@ useEffect(() => {
       ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       : null;
 
+  const reviewFlagCount = Array.isArray(verifiedDistance?.flags) ? verifiedDistance.flags.length : 0;
+  const rawKm = Number(verifiedDistance?.rawKm ?? 0);
+  const hasVerifiedDistance = !!verifiedDistance;
+  const auditSegments = Array.isArray(verifiedDistance?.auditSegments) ? verifiedDistance.auditSegments : [];
+  const auditCounts = auditSegments.reduce((acc, segment) => {
+    const status = segment?.status || "rejected";
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div style={{ position: "relative", width: "100%", height, borderRadius: "inherit" }}>
       <div ref={mapDivRef} style={{ width: "100%", height: "100%", borderRadius: "inherit" }} />
@@ -1152,14 +1304,31 @@ useEffect(() => {
         padding: "6px 14px", fontSize: 12, fontWeight: 700, color: "#0f172a",
         boxShadow: "0 2px 10px rgba(0,0,0,0.12)", pointerEvents: "none",
         display: "flex", alignItems: "center", gap: 10, border: "1px solid #e2e8f0",
+        flexWrap: "wrap", maxWidth: 520,
       }}>
         {pointCount > 0
-          ? <span>📍 {pointCount} point{pointCount !== 1 ? "s" : ""}</span>
-          : <span style={{ color: "#94a3b8" }}>📍 Waiting for movement…</span>}
+          ? <span>Points: {pointCount}</span>
+          : <span style={{ color: "#94a3b8" }}>Waiting for movement...</span>}
         <span style={{ color: "#e2e8f0" }}>|</span>
         <span style={{ color: totalKm > 0 ? "#4569ea" : "#94a3b8", fontSize: 13, fontWeight: 800 }}>
-          🛣 {totalKm.toFixed(2)} km
+          {hasVerifiedDistance ? "Payable" : "Distance"}: {totalKm.toFixed(2)} km
         </span>
+        {hasVerifiedDistance && (
+          <>
+            <span style={{ color: "#e2e8f0" }}>|</span>
+            <span style={{ color: "#64748b", fontSize: 11 }}>
+              Raw: {rawKm.toFixed(2)} km
+            </span>
+          </>
+        )}
+        {reviewFlagCount > 0 && (
+          <>
+            <span style={{ color: "#e2e8f0" }}>|</span>
+            <span style={{ color: "#d97706", fontSize: 11, fontWeight: 800 }}>
+              Review: {reviewFlagCount} flag{reviewFlagCount !== 1 ? "s" : ""}
+            </span>
+          </>
+        )}
         {isLive && (
           <>
             <span style={{ color: "#e2e8f0" }}>|</span>
@@ -1167,6 +1336,21 @@ useEffect(() => {
           </>
         )}
       </div>
+
+      {auditSegments.length > 0 && (
+        <div style={{
+          position: "absolute", bottom: 52, left: 10, zIndex: 1000,
+          background: "rgba(255,255,255,0.97)", borderRadius: 10,
+          padding: "6px 12px", fontSize: 11, fontWeight: 800, color: "#334155",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.10)", pointerEvents: "none",
+          display: "flex", alignItems: "center", gap: 10, border: "1px solid #e2e8f0",
+          flexWrap: "wrap", maxWidth: 520,
+        }}>
+          <span><b style={{ color: "#16a34a" }}>Green</b>: Payable {auditCounts.payable || 0}</span>
+          <span><b style={{ color: "#f59e0b" }}>Orange</b>: Review {auditCounts.review || 0}</span>
+          <span><b style={{ color: "#64748b" }}>Untrusted hidden</b>: {auditCounts.rejected || 0}</span>
+        </div>
+      )}
 
       <style>{`
         @keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:0.25} }

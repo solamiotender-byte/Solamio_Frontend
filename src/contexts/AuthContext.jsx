@@ -8,7 +8,7 @@ import React, {
 } from "react";
 
 const AuthContext = createContext({});
-const API_BASE_URL = "  https://vanurtech-solar-backend-1.onrender.com/api/v1";
+const API_BASE_URL = "https://vanurtech-solar-backend-1.onrender.com/api/v1";
 
 
 export const useAuth = () => {
@@ -136,10 +136,16 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email, password }),
       });
 
-      const token = response.result?.token || response.token;
-      const userData = response.result?.user || response.result || response;
+      const result = response.result || response.data || response;
+      const token =
+        result?.token ||
+        response.token ||
+        result?.accessToken ||
+        response.accessToken;
+      const userData = result?.user || result;
 
       if (!token) throw new Error("No token received");
+      if (!userData?.role) throw new Error("User role not found in login response");
 
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify(userData));

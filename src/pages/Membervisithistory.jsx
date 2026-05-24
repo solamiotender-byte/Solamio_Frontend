@@ -77,6 +77,17 @@ const apiFetch = async (path, params = {}, options = {}) => {
 
 const fmt = (d) => d ? new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
 
+const formatPunchAddress = (location) => {
+  const address = location?.address;
+  if (typeof address === "string" && address.trim()) return address;
+  const structured = address?.full || address?.short || address?.formattedAddress;
+  if (structured) return structured;
+  if (Number.isFinite(Number(location?.lat)) && Number.isFinite(Number(location?.lng))) {
+    return `${Number(location.lat).toFixed(5)}, ${Number(location.lng).toFixed(5)}`;
+  }
+  return "";
+};
+
 const normalizePhotoUrl = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== "string") return null;
 
@@ -706,10 +717,19 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   const [locating,         setLocating]         = useState(false);
   const [gpsDistance,      setGpsDistance]      = useState(null);
   const [mapDistance,      setMapDistance]      = useState(null);
+  const [detectedStops,    setDetectedStops]    = useState([]);
   const [autoVisitToast,   setAutoVisitToast]   = useState(null);
   const [dwellInfo,        setDwellInfo]        = useState(null);
   const [liveBatteryInfo,  setLiveBatteryInfo]  = useState({ percentage: null, isCharging: false, recordedAt: null });
   const [punchBatteryInfo, setPunchBatteryInfo] = useState({ percentage: null, isCharging: false, recordedAt: null });
+  const [punchOutBatteryInfo, setPunchOutBatteryInfo] = useState({ percentage: null, isCharging: false, recordedAt: null });
+
+  const selectedAttendanceDate = useCallback(() => {
+    if (filters.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/)) return filters.dateRange;
+    const date = new Date();
+    if (filters.dateRange === "yesterday") date.setDate(date.getDate() - 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }, [filters.dateRange]);
 
   const handleLocateMe = () => {
     setLocating(true);
@@ -742,16 +762,18 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   useEffect(() => {
     setLiveBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
     setPunchBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
+    setPunchOutBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
     setMapDistance(null);
+    setDetectedStops([]);
   }, [targetUserId]);
 
   const fetchPunchInStatus = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const date = selectedAttendanceDate();
       const res   = await apiFetch("/attendance", {
-        startDate: today, endDate: today, limit: 1,
-        ...(isAdminView ? { userId: targetUserId } : {}),
+        startDate: date, endDate: date, limit: 1,
+        userId: targetUserId,
       });
       const list = res?.data?.attendances || res?.result?.attendances || res?.data || [];
       const att  = Array.isArray(list) ? list[0] : list;
@@ -762,7 +784,11 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
           att.punchIn?.battery ||
           att.metadata?.batteryAtPunchIn ||
           null;
-        setIsPunchedIn(!out);
+        const punchOutBatterySnapshot =
+          att.punchOut?.battery ||
+          att.metadata?.batteryAtPunchOut ||
+          null;
+        setIsPunchedIn(true);
         setHasPunchedOut(out);
         setPunchInLocation({
           lat:     att.punchIn?.location?.lat  || att.punchIn?.location?.latitude  || null,
@@ -792,17 +818,29 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
             address: att.punchOut?.address || null,
             time:    att.punchOut?.time    || null,
           });
+          const normalizedPunchOutPercentage =
+            punchOutBatterySnapshot?.percentage !== undefined && punchOutBatterySnapshot?.percentage !== null
+              ? Number(punchOutBatterySnapshot.percentage)
+              : null;
+          setPunchOutBatteryInfo({
+            percentage: Number.isFinite(normalizedPunchOutPercentage) ? normalizedPunchOutPercentage : null,
+            isCharging: punchOutBatterySnapshot?.isCharging ?? false,
+            recordedAt: punchOutBatterySnapshot?.recordedAt || att.punchOut?.time || null,
+          });
         } else {
           setPunchOutLocation(null);
+          setPunchOutBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
         }
       } else {
         setIsPunchedIn(false);
         setHasPunchedOut(false);
         setPunchInLocation(null);
+        setPunchOutLocation(null);
         setPunchBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
+        setPunchOutBatteryInfo({ percentage: null, isCharging: false, recordedAt: null });
       }
     } catch (e) { console.warn("Punch-in status failed:", e.message); }
-  }, [targetUserId, isAdminView]);
+  }, [targetUserId, selectedAttendanceDate]);
 
   const fetchVisits = useCallback(async (pageNum = 1, append = false) => {
     try {
@@ -859,6 +897,32 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     } catch (e) { console.warn("GPS distance fetch failed:", e.message); }
   }, [filters.dateRange, targetUserId]);
 
+  const fetchDetectedStops = useCallback(async () => {
+    if (!targetUserId) return;
+    try {
+      const date = selectedAttendanceDate();
+      const res = await apiFetch("/location/stops", { date, salesmanId: targetUserId });
+      const data = res?.data || res?.result || res;
+      const stops = Array.isArray(data?.stops) ? data.stops : [];
+      setDetectedStops(stops.map((stop, index) => ({
+        _id: stop.id || `auto-stop-${index}`,
+        locationName: stop.locationName || `Stopped ${stop.dwellMinutes || 15} min`,
+        address: stop.address,
+        status: "Auto Stop",
+        lat: stop.lat,
+        lng: stop.lng,
+        coordinates: { lat: stop.lat, lng: stop.lng },
+        checkInTime: stop.checkInTime,
+        checkOutTime: stop.checkOutTime,
+        dwellMinutes: stop.dwellMinutes,
+        autoDetected: true,
+      })));
+    } catch (e) {
+      console.warn("Detected stops fetch failed:", e.message);
+      setDetectedStops([]);
+    }
+  }, [targetUserId, selectedAttendanceDate]);
+
   const fetchLatestBattery = useCallback(async () => {
     if (!targetUserId) return;
     try {
@@ -906,8 +970,9 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     fetchStats();
     fetchPunchInStatus();
     fetchGpsDistance();
+    fetchDetectedStops();
     fetchLatestBattery();
-  }, [filters, userId, authUserId, fetchVisits, fetchStats, fetchPunchInStatus, fetchGpsDistance, fetchLatestBattery]);
+  }, [filters, userId, authUserId, fetchVisits, fetchStats, fetchPunchInStatus, fetchGpsDistance, fetchDetectedStops, fetchLatestBattery]);
 
   const handleRefresh = () => {
     setPage(1);
@@ -915,25 +980,27 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     fetchStats();
     fetchPunchInStatus();
     fetchGpsDistance();
+    fetchDetectedStops();
     fetchLatestBattery();
   };
 
   useEffect(() => {
     if (!hasPunchedOut) return;
-    const timer = setTimeout(() => { fetchVisits(1, false); fetchGpsDistance(); }, 2000);
+    const timer = setTimeout(() => { fetchVisits(1, false); fetchGpsDistance(); fetchDetectedStops(); }, 2000);
     return () => clearTimeout(timer);
-  }, [hasPunchedOut, fetchVisits, fetchGpsDistance]);
+  }, [hasPunchedOut, fetchVisits, fetchGpsDistance, fetchDetectedStops]);
 
   useEffect(() => {
     if (!targetUserId) return;
     const interval = setInterval(() => {
       fetchVisits(1, false);
       fetchGpsDistance();
+      fetchDetectedStops();
       fetchPunchInStatus();
       fetchLatestBattery();
     }, 12_000);
     return () => clearInterval(interval);
-  }, [targetUserId, fetchVisits, fetchGpsDistance, fetchPunchInStatus, fetchLatestBattery]);
+  }, [targetUserId, fetchVisits, fetchGpsDistance, fetchDetectedStops, fetchPunchInStatus, fetchLatestBattery]);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const visibleVisits   = visits.filter(
@@ -958,8 +1025,17 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   // ── Visits sorted oldest → newest for A→B→C display ──────────────────────
   // Keep newest visits first in the timeline.
   const sortedVisits = visibleVisits;
+  const sortedDetectedStops = [...detectedStops].sort(
+    (a, b) => new Date(a.checkInTime || 0) - new Date(b.checkInTime || 0)
+  );
+  const mapStops = sortedDetectedStops.map((stop) => ({
+    ...stop,
+    locationName: stop.locationName || `Stopped ${stop.dwellMinutes || 15} min`,
+    status: "Auto Stop",
+  }));
   const currentBatteryInfo = liveBatteryInfo.percentage !== null ? liveBatteryInfo : punchBatteryInfo;
   const timelineBatteryInfo = punchBatteryInfo;
+  const punchOutBatteryChip = getBatteryChipStyle(punchOutBatteryInfo.percentage);
   const currentBatteryChip = getBatteryChipStyle(currentBatteryInfo.percentage);
   const timelineBatteryChip = getBatteryChipStyle(timelineBatteryInfo.percentage);
   const batteryInfo = currentBatteryInfo;
@@ -1137,7 +1213,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   locateTrigger={locateTrigger}
   onDistanceChange={setMapDistance}
   punchInLocation={punchInLocation}
-  visits={visibleVisits} 
+  visits={[...visibleVisits, ...mapStops]} 
   selectedDate={
     filters.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/)
       ? filters.dateRange
@@ -1321,10 +1397,11 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                 </Box>
               ) : visibleVisits.length === 0 ? (
                 <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 3 }}>
-                  {isPunchedIn && !hasPunchedOut ? (
+                  {punchInLocation?.time ? (
+                    <>
                     <Box sx={{ display: "flex", gap: 2 }}>
                       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                        <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: SUCCESS, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 0 4px ${alpha(SUCCESS, 0.2)}`, animation: "pl 1.5s ease-in-out infinite", "@keyframes pl": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.6 } } }}>
+                        <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: hasPunchedOut ? WARNING : SUCCESS, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 0 4px ${alpha(hasPunchedOut ? WARNING : SUCCESS, 0.2)}`, animation: hasPunchedOut ? "none" : "pl 1.5s ease-in-out infinite", "@keyframes pl": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.6 } } }}>
                           <MyLocation sx={{ fontSize: 18, color: "#fff" }} />
                         </Box>
                       </Box>
@@ -1337,25 +1414,84 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                           <Box sx={{ mb: 0.8 }}>
                             <Chip
                               size="small"
-                              label={`${timelineBatteryChip.label}${timelineBatteryInfo.isCharging ? " • Charging" : ""}`}
+                              label={`Punch-in ${timelineBatteryInfo.percentage}%${timelineBatteryInfo.isCharging ? " - Charging" : ""}`}
                               sx={{ bgcolor: timelineBatteryChip.bg, color: timelineBatteryChip.color, fontWeight: 700, border: `1px solid ${timelineBatteryChip.border}`, height: 24 }}
                             />
                           </Box>
                         )}
-                        {punchInLocation?.address && (
+                        {formatPunchAddress(punchInLocation) && (
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.5 }}>
                             <LocationOn sx={{ fontSize: 12, color: "#94a3b8", mt: "2px", flexShrink: 0 }} />
                             <Typography sx={{ fontSize: "0.75rem", color: "#64748b", lineHeight: 1.5 }}>
-                              {typeof punchInLocation.address === "string" ? punchInLocation.address : punchInLocation.address?.full || punchInLocation.address?.short || ""}
+                              {formatPunchAddress(punchInLocation)}
                             </Typography>
                           </Box>
                         )}
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
-                          <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: SUCCESS, animation: "dp 1.5s ease-in-out infinite", "@keyframes dp": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.3 } } }} />
-                          <Typography sx={{ fontSize: "0.7rem", color: SUCCESS, fontWeight: 600 }}>On Duty · No visits yet today</Typography>
+                          <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: SUCCESS, animation: hasPunchedOut ? "none" : "dp 1.5s ease-in-out infinite", "@keyframes dp": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.3 } } }} />
+                          <Typography sx={{ fontSize: "0.7rem", color: SUCCESS, fontWeight: 600 }}>
+                            {hasPunchedOut ? "Started duty" : "On Duty"} - No visits for selected date
+                          </Typography>
                         </Box>
                       </Box>
                     </Box>
+                    {hasPunchedOut && punchOutLocation?.time && (
+                      <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                          <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: WARNING, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 0 4px ${alpha(WARNING, 0.2)}` }}>
+                            <MyLocation sx={{ fontSize: 18, color: "#fff" }} />
+                          </Box>
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0, pt: 0.5 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.4 }}>
+                            <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched Out</Typography>
+                            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchOutLocation.time)}</Typography>
+                          </Box>
+                          {punchOutBatteryInfo.percentage !== null && (
+                            <Box sx={{ mb: 0.8 }}>
+                              <Chip
+                                size="small"
+                                label={`Punch-out ${punchOutBatteryInfo.percentage}%${punchOutBatteryInfo.isCharging ? " - Charging" : ""}`}
+                                sx={{ bgcolor: punchOutBatteryChip.bg, color: punchOutBatteryChip.color, fontWeight: 700, border: `1px solid ${punchOutBatteryChip.border}`, height: 24 }}
+                              />
+                            </Box>
+                          )}
+                          {formatPunchAddress(punchOutLocation) && (
+                            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.5 }}>
+                              <LocationOn sx={{ fontSize: 12, color: WARNING, mt: "2px", flexShrink: 0 }} />
+                              <Typography sx={{ fontSize: "0.75rem", color: "#64748b", lineHeight: 1.5 }}>
+                                {formatPunchAddress(punchOutLocation)}
+                              </Typography>
+                            </Box>
+                          )}
+                          <Typography sx={{ fontSize: "0.7rem", color: WARNING, fontWeight: 600 }}>Day completed</Typography>
+                        </Box>
+                      </Box>
+                    )}
+                    {sortedDetectedStops.map((stop, i) => (
+                      <Box key={stop._id || `stop-empty-${i}`} sx={{ display: "flex", gap: 2, mt: 2 }}>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                          <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: "#0ea5e9", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 0 4px ${alpha("#0ea5e9", 0.18)}` }}>
+                            <LocationOn sx={{ fontSize: 18, color: "#fff" }} />
+                          </Box>
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0, pt: 0.5 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.4 }}>
+                            <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>
+                              Stopped {stop.dwellMinutes || 15} min
+                            </Typography>
+                            {stop.checkInTime && (
+                              <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(stop.checkInTime)}</Typography>
+                            )}
+                          </Box>
+                          <Typography sx={{ fontSize: "0.75rem", color: "#475569", lineHeight: 1.5 }}>
+                            {stop.address || `${Number(stop.lat).toFixed(5)}, ${Number(stop.lng).toFixed(5)}`}
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: "#0369a1", fontWeight: 700, mt: 0.5 }}>Auto-detected stop</Typography>
+                        </Box>
+                      </Box>
+                    ))}
+                    </>
                   ) : (
                     <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 200 }}>
                       <Box sx={{ width: 48, height: 48, borderRadius: "50%", bgcolor: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
@@ -1387,7 +1523,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                             <Box sx={{ mb: 0.8 }}>
                               <Chip
                                 size="small"
-                                label={`${timelineBatteryChip.label}${timelineBatteryInfo.isCharging ? " • Charging" : ""}`}
+                                label={`Punch-in ${timelineBatteryInfo.percentage}%${timelineBatteryInfo.isCharging ? " - Charging" : ""}`}
                                 sx={{ bgcolor: timelineBatteryChip.bg, color: timelineBatteryChip.color, fontWeight: 700, border: `1px solid ${timelineBatteryChip.border}`, height: 24 }}
                               />
                             </Box>
@@ -1395,7 +1531,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4 }}>
                             <LocationOn sx={{ fontSize: 12, color: PRIMARY, mt: "2px", flexShrink: 0 }} />
                             <Typography sx={{ fontSize: "0.75rem", color: "#475569", lineHeight: 1.5 }}>
-                              {typeof punchInLocation.address === "string" ? punchInLocation.address : punchInLocation.address?.full || punchInLocation.address?.short || ""}
+                              {formatPunchAddress(punchInLocation)}
                             </Typography>
                           </Box>
                         </Box>
@@ -1426,6 +1562,39 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                   ))}
 
                   {/* ── Punch Out footer ── */}
+                  {sortedDetectedStops.map((stop, i) => (
+                    <Box key={stop._id || `stop-${i}`} sx={{ display: "flex", gap: 2, my: 2 }}>
+                      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                        <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: "#0ea5e9", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 2px 8px ${alpha("#0ea5e9", 0.3)}` }}>
+                          <LocationOn sx={{ fontSize: 18, color: "#fff" }} />
+                        </Box>
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0, pt: 0.5 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.4 }}>
+                          <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>
+                            Stopped {stop.dwellMinutes || 15} min
+                          </Typography>
+                          {stop.checkInTime && (
+                            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>
+                              {fmt(stop.checkInTime)}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4, mb: 0.5 }}>
+                          <LocationOn sx={{ fontSize: 12, color: "#0ea5e9", mt: "2px", flexShrink: 0 }} />
+                          <Typography sx={{ fontSize: "0.75rem", color: "#475569", lineHeight: 1.5 }}>
+                            {stop.address || `${Number(stop.lat).toFixed(5)}, ${Number(stop.lng).toFixed(5)}`}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          size="small"
+                          label="Auto-detected stop"
+                          sx={{ height: 22, bgcolor: alpha("#0ea5e9", 0.1), color: "#0369a1", border: `1px solid ${alpha("#0ea5e9", 0.22)}`, fontWeight: 700 }}
+                        />
+                      </Box>
+                    </Box>
+                  ))}
+
                   {hasPunchedOut && punchOutLocation?.time && (
                     <Box sx={{ display: "flex", gap: 2, mt: 0 }}>
                       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
@@ -1438,20 +1607,20 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                           <Typography sx={{ fontWeight: 700, color: "#0f172a", fontSize: "0.88rem" }}>Punched Out</Typography>
                           <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>{fmt(punchOutLocation.time)}</Typography>
                         </Box>
-                        {timelineBatteryInfo.percentage !== null && (
+                        {punchOutBatteryInfo.percentage !== null && (
                           <Box sx={{ mb: 0.8 }}>
                             <Chip
                               size="small"
-                              label={`${timelineBatteryChip.label}${timelineBatteryInfo.isCharging ? " • Charging" : ""}`}
-                              sx={{ bgcolor: timelineBatteryChip.bg, color: timelineBatteryChip.color, fontWeight: 700, border: `1px solid ${timelineBatteryChip.border}`, height: 24 }}
+                              label={`Punch-out ${punchOutBatteryInfo.percentage}%${punchOutBatteryInfo.isCharging ? " - Charging" : ""}`}
+                              sx={{ bgcolor: punchOutBatteryChip.bg, color: punchOutBatteryChip.color, fontWeight: 700, border: `1px solid ${punchOutBatteryChip.border}`, height: 24 }}
                             />
                           </Box>
                         )}
-                        {punchOutLocation?.address && (
+                        {formatPunchAddress(punchOutLocation) && (
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.4 }}>
                             <LocationOn sx={{ fontSize: 12, color: WARNING, mt: "2px", flexShrink: 0 }} />
                             <Typography sx={{ fontSize: "0.75rem", color: "#475569", lineHeight: 1.5 }}>
-                              {typeof punchOutLocation.address === "string" ? punchOutLocation.address : punchOutLocation.address?.full || punchOutLocation.address?.short || ""}
+                              {formatPunchAddress(punchOutLocation)}
                             </Typography>
                           </Box>
                         )}

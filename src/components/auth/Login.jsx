@@ -435,6 +435,10 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (loading) {
+      return;
+    }
+
     if (lockUntil && new Date(lockUntil) > new Date()) {
       handleError({
         type: ERROR_TYPES.RATE_LIMIT,
@@ -514,11 +518,16 @@ const Login = () => {
           }
         }, 1500);
       } else {
-        // Handle error cases...
-        // (rest of your error handling code)
+        handleError({
+          type: ERROR_TYPES.UNAUTHORIZED,
+          message: result?.error || "Invalid email or password. Please try again.",
+        });
       }
     } catch (err) {
-      // Error handling...
+      handleError({
+        type: ERROR_TYPES.SERVER_ERROR,
+        message: err.message || "Login failed. Please try again.",
+      });
     } finally {
       setLoading(false);
       setShowBackdrop(false);
@@ -1212,6 +1221,7 @@ const Login = () => {
                 type="submit"
                 fullWidth
                 variant="contained"
+                disabled={loading || (lockUntil && new Date(lockUntil) > new Date())}
                 sx={{
                   mt: { xs: 0.5, sm: 1, md: 1.5 },
                   mb: { xs: 1.5, sm: 2, md: 2.5 },
@@ -1225,6 +1235,10 @@ const Login = () => {
                   letterSpacing: "0.5px",
                   minHeight: { xs: "44px", sm: "48px", md: "52px" },
                   transition: "all 0.2s ease",
+                  "&.Mui-disabled": {
+                    background: COLOR_LIGHT,
+                    color: "#fff",
+                  },
                 }}
               >
                 Login

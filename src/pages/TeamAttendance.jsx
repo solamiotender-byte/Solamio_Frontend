@@ -510,6 +510,36 @@ const MemberCard = ({ member }) => {
               </Box>
             )}
 
+            <Box
+              sx={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1,
+                bgcolor: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "9px", px: 1.25, py: 0.8,
+              }}
+            >
+              <Typography sx={{ fontSize: "0.76rem", color: "#1e40af", fontWeight: 800 }}>
+                Payable KM
+              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                <Typography sx={{ fontSize: "0.86rem", color: "#1d4ed8", fontWeight: 900 }}>
+                  {typeof member.payableKm === "number" ? member.payableKm.toFixed(2) : "--"} km
+                </Typography>
+                {member.reviewFlags > 0 && (
+                  <Chip
+                    label={`${member.reviewFlags} review`}
+                    size="small"
+                    sx={{
+                      height: 20,
+                      bgcolor: "#fffbeb",
+                      color: "#b45309",
+                      border: "1px solid #fde68a",
+                      fontSize: "0.64rem",
+                      fontWeight: 800,
+                    }}
+                  />
+                )}
+              </Box>
+            </Box>
+
             {member.location && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
                 <LocationOn sx={{ fontSize: "0.9rem", color: "#f43f5e" }} />
@@ -746,7 +776,32 @@ const TeamAttendance = () => {
       if (uid) attMap[uid] = a;
     });
 
-    // Step 5: Merge users + attendance + battery
+    // Step 5: Fetch verified payable KM for users who punched in today
+    const distanceMap = {};
+    const punchedUserIds = rawUsers
+      .map((u) => String(u._id || u.id || ""))
+      .filter((uid) => uid && attMap[uid]?.punchIn?.time);
+
+    await Promise.all(
+      punchedUserIds.map(async (uid) => {
+        try {
+          const distanceRes = await axios.get(`${API}/api/v1/location/verified-distance`, {
+            headers,
+            params: { salesmanId: uid, date: selectedDate },
+          });
+          const distance = distanceRes.data?.data || distanceRes.data?.result || distanceRes.data || {};
+          distanceMap[uid] = {
+            payableKm: Number(distance.payableKm || 0),
+            rawKm: Number(distance.rawKm || 0),
+            reviewFlags: Array.isArray(distance.flags) ? distance.flags.length : 0,
+          };
+        } catch (e) {
+          distanceMap[uid] = null;
+        }
+      })
+    );
+
+    // Step 6: Merge users + attendance + battery + verified distance
     const merged = rawUsers.map((u) => {
       const uid = String(u._id || u.id || "");
       const att = attMap[uid] || null;
@@ -775,6 +830,9 @@ const TeamAttendance = () => {
         // ✅ Fixed battery key lookup
         batteryPercentage: batteryMap[uid]?.percentage ?? null,
         isCharging: batteryMap[uid]?.isCharging ?? false,
+        payableKm: distanceMap[uid]?.payableKm ?? null,
+        rawKm: distanceMap[uid]?.rawKm ?? null,
+        reviewFlags: distanceMap[uid]?.reviewFlags ?? 0,
       };
     });
 
