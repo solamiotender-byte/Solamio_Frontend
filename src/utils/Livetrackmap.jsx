@@ -22,12 +22,14 @@ import {
 import { useSocket } from "./Usesocket.js";
 import { toast } from "../components/useToast.jsx";
 
-const API  = "  https://solamio-backend.onrender.com";
+const API  = "https://solamio-backend.onrender.com";
 const GKEY = "AIzaSyCqM7uF9c0ZMQjdssHqSMJJ3mBcmz5RNS0";
 
 const MIN_MOVE_METRES = 35;
 const SNAP_TO_ROADS_MAX_POINTS = 100;
 const SNAP_TO_ROADS_MAX_GAP_METRES = 300;
+const ROUTE_BRIDGE_MAX_GAP_METRES = 5000;
+const DIRECTIONS_MAX_WAYPOINTS = 23;
 
 function getGpsNoiseRadiusMetres(currentAccuracy = 0, previousAccuracy = 0) {
   const current = Number(currentAccuracy) || 0;
@@ -504,6 +506,132 @@ useEffect(() => {
       : batch.map((point) => ({ lat: point.lat, lng: point.lng }));
   }
 
+  async function fetchRoadBridge(from, to) {
+    if (!window.google?.maps?.DirectionsService) return [];
+    if (!from || !to) return [];
+
+    const gapMetres = distMetres(from.lat, from.lng, to.lat, to.lng);
+    if (gapMetres < 35 || gapMetres > ROUTE_BRIDGE_MAX_GAP_METRES) return [];
+
+    const service = new window.google.maps.DirectionsService();
+
+    try {
+      const result = await service.route({
+        origin: { lat: from.lat, lng: from.lng },
+        destination: { lat: to.lat, lng: to.lng },
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      });
+
+      const overviewPath = Array.isArray(result?.routes?.[0]?.overview_path)
+        ? result.routes[0].overview_path
+        : [];
+
+      return overviewPath
+        .map((point) => ({
+          lat: Number(typeof point?.lat === "function" ? point.lat() : point?.lat),
+          lng: Number(typeof point?.lng === "function" ? point.lng() : point?.lng),
+        }))
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+    } catch (error) {
+      console.warn("[DirectionsBridge] Falling back to segmented path:", error?.message || error);
+      return [];
+    }
+  }
+
+  function dedupePath(path = []) {
+    const deduped = [];
+    for (const point of path) {
+      const last = deduped[deduped.length - 1];
+      if (
+        last &&
+        Math.abs(last.lat - point.lat) < 0.000001 &&
+        Math.abs(last.lng - point.lng) < 0.000001
+      ) {
+        continue;
+      }
+      deduped.push(point);
+    }
+    return deduped;
+  }
+
+  function buildRouteAnchors(points = []) {
+    if (!Array.isArray(points) || points.length < 2) return points;
+
+    const anchors = [points[0]];
+    let lastAnchor = points[0];
+
+    for (let i = 1; i < points.length - 1; i++) {
+      const point = points[i];
+      const gapMetres = distMetres(lastAnchor.lat, lastAnchor.lng, point.lat, point.lng);
+      if (gapMetres >= 120) {
+        anchors.push(point);
+        lastAnchor = point;
+      }
+    }
+
+    anchors.push(points[points.length - 1]);
+    return dedupePath(anchors);
+  }
+
+  async function fetchDirectionsPath(points) {
+    if (!window.google?.maps?.DirectionsService || !Array.isArray(points) || points.length < 2) {
+      return [];
+    }
+
+    const anchors = buildRouteAnchors(points);
+    if (anchors.length < 2) return [];
+
+    const service = new window.google.maps.DirectionsService();
+    const routedPath = [];
+
+    for (let startIndex = 0; startIndex < anchors.length - 1; startIndex += DIRECTIONS_MAX_WAYPOINTS) {
+      const chunk = anchors.slice(startIndex, startIndex + DIRECTIONS_MAX_WAYPOINTS + 1);
+      if (chunk.length < 2) continue;
+
+      try {
+        const result = await service.route({
+          origin: { lat: chunk[0].lat, lng: chunk[0].lng },
+          destination: { lat: chunk[chunk.length - 1].lat, lng: chunk[chunk.length - 1].lng },
+          waypoints: chunk.slice(1, -1).map((point) => ({
+            location: { lat: point.lat, lng: point.lng },
+            stopover: false,
+          })),
+          optimizeWaypoints: false,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        });
+
+        const overviewPath = Array.isArray(result?.routes?.[0]?.overview_path)
+          ? result.routes[0].overview_path
+          : [];
+
+        const normalizedChunk = overviewPath
+          .map((point) => ({
+            lat: Number(typeof point?.lat === "function" ? point.lat() : point?.lat),
+            lng: Number(typeof point?.lng === "function" ? point.lng() : point?.lng),
+          }))
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+        if (!normalizedChunk.length) continue;
+
+        if (routedPath.length > 0) {
+          const last = routedPath[routedPath.length - 1];
+          const first = normalizedChunk[0];
+          const duplicate =
+            Math.abs(last.lat - first.lat) < 0.000001 &&
+            Math.abs(last.lng - first.lng) < 0.000001;
+          routedPath.push(...(duplicate ? normalizedChunk.slice(1) : normalizedChunk));
+        } else {
+          routedPath.push(...normalizedChunk);
+        }
+      } catch (error) {
+        console.warn("[DirectionsRoute] Falling back to snap-to-roads:", error?.message || error);
+        return [];
+      }
+    }
+
+    return dedupePath(routedPath);
+  }
+
   async function getRoadPath(points) {
     if (!Array.isArray(points) || points.length < 2) {
       return points.map((point) => ({ lat: point.lat, lng: point.lng }));
@@ -512,6 +640,12 @@ useEffect(() => {
     const cacheKey = buildSnapBatchKey(points);
     if (snappedTrailCacheRef.current.key === cacheKey) {
       return snappedTrailCacheRef.current.path;
+    }
+
+    const directionsPath = await fetchDirectionsPath(points);
+    if (directionsPath.length >= 2) {
+      snappedTrailCacheRef.current = { key: cacheKey, path: directionsPath };
+      return directionsPath;
     }
 
     const batches = [];
@@ -545,10 +679,25 @@ useEffect(() => {
     }
 
     const snappedPath = [];
+    let previousBatchLastPoint = null;
 
     for (const batch of batches) {
       const snappedBatch = await fetchSnappedBatch(batch);
       if (!snappedBatch.length) continue;
+
+      const currentBatchFirstPoint = snappedBatch[0];
+
+      if (previousBatchLastPoint && currentBatchFirstPoint) {
+        const bridgePath = await fetchRoadBridge(previousBatchLastPoint, currentBatchFirstPoint);
+        if (bridgePath.length > 1) {
+          const last = snappedPath[snappedPath.length - 1];
+          const duplicateAtStart =
+            last &&
+            Math.abs(bridgePath[0].lat - last.lat) < 0.000001 &&
+            Math.abs(bridgePath[0].lng - last.lng) < 0.000001;
+          snappedPath.push(...(duplicateAtStart ? bridgePath.slice(1) : bridgePath));
+        }
+      }
 
       if (snappedPath.length > 0) {
         const first = snappedBatch[0];
@@ -560,6 +709,8 @@ useEffect(() => {
       } else {
         snappedPath.push(...snappedBatch);
       }
+
+      previousBatchLastPoint = snappedBatch[snappedBatch.length - 1];
     }
 
     const finalPath = snappedPath.length
@@ -583,9 +734,7 @@ useEffect(() => {
   }
 
   function getAuditColor(status) {
-    if (status === "payable") return "#16a34a";
-    if (status === "review") return "#f59e0b";
-    return "#dc2626";
+    return "#16a34a";
   }
 
   function getAuditSegmentCacheKey(segment) {
@@ -612,11 +761,22 @@ useEffect(() => {
 
     const gapMetres = distMetres(fallbackPath[0].lat, fallbackPath[0].lng, fallbackPath[1].lat, fallbackPath[1].lng);
     if (gapMetres > SNAP_TO_ROADS_MAX_GAP_METRES) {
+      const bridgedPath = await fetchRoadBridge(fallbackPath[0], fallbackPath[1]);
+      if (bridgedPath.length >= 2) {
+        auditPathCacheRef.current[cacheKey] = bridgedPath;
+        return bridgedPath;
+      }
       auditPathCacheRef.current[cacheKey] = null;
       return null;
     }
 
     try {
+      const bridgedPath = await fetchRoadBridge(fallbackPath[0], fallbackPath[1]);
+      if (bridgedPath.length >= 2) {
+        auditPathCacheRef.current[cacheKey] = bridgedPath;
+        return bridgedPath;
+      }
+
       const snappedPath = await fetchSnappedBatch(fallbackPath);
       if (snappedPath.length >= 2) {
         auditPathCacheRef.current[cacheKey] = snappedPath;
@@ -1324,7 +1484,7 @@ useEffect(() => {
         {reviewFlagCount > 0 && (
           <>
             <span style={{ color: "#e2e8f0" }}>|</span>
-            <span style={{ color: "#d97706", fontSize: 11, fontWeight: 800 }}>
+            <span style={{ color: "#16a34a", fontSize: 11, fontWeight: 800 }}>
               Review: {reviewFlagCount} flag{reviewFlagCount !== 1 ? "s" : ""}
             </span>
           </>
@@ -1347,7 +1507,7 @@ useEffect(() => {
           flexWrap: "wrap", maxWidth: 520,
         }}>
           <span><b style={{ color: "#16a34a" }}>Green</b>: Payable {auditCounts.payable || 0}</span>
-          <span><b style={{ color: "#f59e0b" }}>Orange</b>: Review {auditCounts.review || 0}</span>
+          <span><b style={{ color: "#16a34a" }}>Green</b>: Review {auditCounts.review || 0}</span>
           <span><b style={{ color: "#64748b" }}>Untrusted hidden</b>: {auditCounts.rejected || 0}</span>
         </div>
       )}
