@@ -9,7 +9,7 @@ In the project directory, you can run:
 ### `npm start`
 
 Runs the app in the development mode.\
-Open [  https://solamio-backend.onrender.com](  https://solamio-backend.onrender.com) to view it in your browser.
+Open [  https://solar-backend-2-r6k9.onrender.com](  https://solar-backend-2-r6k9.onrender.com) to view it in your browser.
 
 The page will reload when you make changes.\
 You may also see any lint errors in the console.

@@ -21,7 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import LiveTrackMap from "../utils/Livetrackmap";
 
-const API = "  https://solamio-backend.onrender.com";
+const API = "  https://solar-backend-2-r6k9.onrender.com";
 
 const avatarColors = [
   "#4569ea", "#7c3aed", "#0ea5e9", "#f59e0b",
