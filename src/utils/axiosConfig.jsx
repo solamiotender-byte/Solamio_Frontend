@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance
 const axiosInstance = axios.create({
-  baseURL: '  https://vanurtech-solar-backend-1.onrender.com/api/v1',
+  baseURL: '  https://solamio-backend.onrender.com/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
