@@ -3233,12 +3233,12 @@ export default function BankLoanApply() {
                   }}
                 />
               )}
-              <Table>
+              <Table stickyHeader>
                 <TableHead>
                   <TableRow>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3259,7 +3259,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3268,7 +3268,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3289,7 +3289,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3310,7 +3310,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3331,7 +3331,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3340,7 +3340,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3349,7 +3349,7 @@ export default function BankLoanApply() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}

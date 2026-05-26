@@ -3786,12 +3786,12 @@ export default function DisbursementPage() {
                 />
               )}
 
-              <Table  size="medium">
+              <Table stickyHeader size="medium">
                 <TableHead>
                   <TableRow>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3800,7 +3800,7 @@ export default function DisbursementPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3831,7 +3831,7 @@ export default function DisbursementPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3840,7 +3840,7 @@ export default function DisbursementPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3849,7 +3849,7 @@ export default function DisbursementPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3880,7 +3880,7 @@ export default function DisbursementPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3889,7 +3889,7 @@ export default function DisbursementPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}

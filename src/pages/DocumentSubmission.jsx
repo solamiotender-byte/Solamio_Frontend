@@ -4319,12 +4319,12 @@ export default function DocumentSubmissionPage() {
                 />
               )}
 
-              <Table  size="medium">
+              <Table stickyHeader  size="medium">
                 <TableHead>
                   <TableRow>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -4333,7 +4333,7 @@ export default function DocumentSubmissionPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -4364,7 +4364,7 @@ export default function DocumentSubmissionPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -4373,7 +4373,7 @@ export default function DocumentSubmissionPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -4382,7 +4382,7 @@ export default function DocumentSubmissionPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -4391,7 +4391,7 @@ export default function DocumentSubmissionPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -4399,7 +4399,9 @@ export default function DocumentSubmissionPage() {
                       Actions
                     </TableCell>
                   </TableRow>
+                   
                 </TableHead>
+             
 
                 <TableBody>
                   {paginatedDocuments.length > 0 ? (

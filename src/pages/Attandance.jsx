@@ -1493,7 +1493,7 @@ export default function Attendance() {
                     </Box>
                   ) : (
                     <TableContainer sx={{ maxHeight: 460 }}>
-                      <Table  size="small">
+                      <Table stickyHeader size="small">
                         <TableHead>
                           <TableRow>
                             <TableCell padding="checkbox" sx={{ bgcolor: alpha(PRIMARY, 0.04), borderBottom: `2px solid ${alpha(PRIMARY, 0.1)}` }}>

@@ -3461,12 +3461,12 @@ export default function TotalVisitsPage() {
                   }}
                 />
               )}
-              <Table>
-                <TableHead>
+              <Table stickyHeader >
+                <TableHead >
                   <TableRow>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3475,7 +3475,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3484,7 +3484,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3493,7 +3493,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3502,7 +3502,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3511,7 +3511,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3520,7 +3520,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
@@ -3529,7 +3529,7 @@ export default function TotalVisitsPage() {
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: alpha(PRIMARY_COLOR, 0.05),
+                        bgcolor: "white",
                         fontWeight: 600,
                         py: 2,
                       }}
