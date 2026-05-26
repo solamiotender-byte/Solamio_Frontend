@@ -1115,7 +1115,7 @@ const ReportDetailsModal = ({ open, onClose, report, data, userRole }) => {
           </Box>
         ) : (
           <TableContainer sx={{ maxHeight: { xs: "calc(100vh - 200px)", sm: "50vh" }, overflow: "auto" }}>
-            <Table stickyHeader size="small">
+            <Table  size="small">
               <TableHead>
                 <TableRow>
                   {report.columns.map((col) => (

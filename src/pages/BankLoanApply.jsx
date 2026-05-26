@@ -3233,7 +3233,7 @@ export default function BankLoanApply() {
                   }}
                 />
               )}
-              <Table stickyHeader>
+              <Table>
                 <TableHead>
                   <TableRow>
                     <TableCell

@@ -3893,7 +3893,7 @@ export default function BankAtPendingPage() {
                 />
               )}
 
-              <Table stickyHeader size="medium">
+              <Table  size="medium">
                 <TableHead>
                   <TableRow>
                     <TableCell

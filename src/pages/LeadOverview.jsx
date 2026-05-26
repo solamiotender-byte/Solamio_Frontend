@@ -1644,7 +1644,7 @@ const LeadOverview = () => {
         {viewMode === "table" && !isMobile ? (
           <>
             <TableContainer>
-              <Table stickyHeader>
+              <Table >
                 <TableHead>
                   <TableRow>
                     <TableCell padding="checkbox">{permissions.bulkActions && <Checkbox indeterminate={selectedCount > 0 && selectedCount < leads.length} checked={selectAll} onChange={handleSelectAll} sx={{ color: PRIMARY_COLOR, "&.Mui-checked": { color: PRIMARY_COLOR } }} />}</TableCell>

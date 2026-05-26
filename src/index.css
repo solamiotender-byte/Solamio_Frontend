@@ -17,3 +17,10 @@ main {
   position: relative !important;
   left: 0 !important;
 }
+
+/* Keep sticky MUI table headers fully opaque so body rows don't bleed through. */
+.MuiTable-stickyHeader .MuiTableCell-stickyHeader {
+  background-color: #f7f9ff !important;
+  background-image: none !important;
+  z-index: 3 !important;
+}

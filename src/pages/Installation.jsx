@@ -4319,7 +4319,7 @@ export default function InstallationPage() {
                 />
               )}
 
-              <Table stickyHeader size="medium">
+              <Table  size="medium">
                 <TableHead>
                   <TableRow>
                     <TableCell

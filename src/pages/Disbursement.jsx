@@ -3786,7 +3786,7 @@ export default function DisbursementPage() {
                 />
               )}
 
-              <Table stickyHeader size="medium">
+              <Table  size="medium">
                 <TableHead>
                   <TableRow>
                     <TableCell

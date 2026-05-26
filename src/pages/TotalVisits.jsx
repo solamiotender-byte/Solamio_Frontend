@@ -3461,7 +3461,7 @@ export default function TotalVisitsPage() {
                   }}
                 />
               )}
-              <Table stickyHeader>
+              <Table>
                 <TableHead>
                   <TableRow>
                     <TableCell
@@ -3554,17 +3554,24 @@ export default function TotalVisitsPage() {
                             )}
                           </Box>
                         </TableCell>
-                       <TableCell>
-  {visit.visitDate
-    ? formatDate(visit.visitDate, "dd MMM yyyy")
-    : formatDate(visit.createdAt, "dd MMM yyyy")}
-  <br />
-  <small>
-    {visit.visitTime
-      ? formatTime(visit.visitTime)
-      : formatDate(visit.createdAt, "hh:mm a")}
-  </small>
-</TableCell>
+                        <TableCell sx={{ verticalAlign: "top" }}>
+                          <Box>
+                            <Typography variant="body2" fontWeight={500}>
+                              {visit.visitDate
+                                ? formatDate(visit.visitDate, "dd MMM yyyy")
+                                : formatDate(visit.createdAt, "dd MMM yyyy")}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: "block", mt: 0.5 }}
+                            >
+                              {visit.visitTime
+                                ? formatTime(visit.visitTime)
+                                : formatDate(visit.createdAt, "hh:mm a")}
+                            </Typography>
+                          </Box>
+                        </TableCell>
                         <TableCell>{visit.visitLocation || "—"}</TableCell>
                         <TableCell>
                           <Typography

@@ -4070,7 +4070,7 @@ export default function RegistrationPage() {
                   }}
                 />
               )}
-              <Table stickyHeader>
+              <Table >
                 <TableHead>
                   <TableRow>
                     <TableCell

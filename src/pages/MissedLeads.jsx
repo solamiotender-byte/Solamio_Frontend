@@ -2865,7 +2865,7 @@ export default function MissedLeadsPage() {
                 />
               )}
 
-              <Table stickyHeader size="medium">
+              <Table  size="medium">
                 <TableHead>
                   <TableRow>
                     <TableCell
