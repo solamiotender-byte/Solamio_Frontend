@@ -152,12 +152,36 @@ const ALLOWED_FILE_TYPES = [
 
 const IMAGE_DOCUMENT_REGEX = /\.(jpg|jpeg|png|gif|bmp|webp)(\?.*)?$/i;
 const PDF_DOCUMENT_REGEX = /\.pdf(\?.*)?$/i;
+const DOCUMENT_BASE_URL = "https://solar-backend-2-r6k9.onrender.com";
+
+const normalizeHostedDocumentUrl = (url) => {
+  if (!url) return "";
+
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (
+        ["backend.sunergytechsolar.com", "localhost", "127.0.0.1"].includes(parsed.hostname) ||
+        parsed.hostname.endsWith(".local")
+      ) {
+        return `${DOCUMENT_BASE_URL}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch {
+      return url;
+    }
+    return url;
+  }
+
+  if (url.startsWith("/")) return `${DOCUMENT_BASE_URL}${url}`;
+
+  return `${DOCUMENT_BASE_URL}/public/${url.replace(/^public\//i, "")}`;
+};
 
 const isImageDocumentUrl = (url) =>
-  Boolean(url && IMAGE_DOCUMENT_REGEX.test(url));
+  Boolean(url && IMAGE_DOCUMENT_REGEX.test(normalizeHostedDocumentUrl(url)));
 
 const isPdfDocumentUrl = (url) =>
-  Boolean(url && PDF_DOCUMENT_REGEX.test(url));
+  Boolean(url && PDF_DOCUMENT_REGEX.test(normalizeHostedDocumentUrl(url)));
 
 // Period Options
 const PERIOD_OPTIONS = [
@@ -1296,19 +1320,23 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
     onClose();
   }, [handleReset, onClose]);
 
+  const resolvedImageUrl = useMemo(
+    () => normalizeHostedDocumentUrl(imageUrl),
+    [imageUrl],
+  );
   const isImage = useMemo(() => isImageDocumentUrl(imageUrl), [imageUrl]);
   const isPdf = useMemo(() => isPdfDocumentUrl(imageUrl), [imageUrl]);
 
   const handleDownload = useCallback(() => {
-    if (!imageUrl) return;
+    if (!resolvedImageUrl) return;
     const link = document.createElement("a");
-    link.href = imageUrl;
+    link.href = resolvedImageUrl;
     link.download = `document_${Date.now()}`;
     link.target = "_blank";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [imageUrl]);
+  }, [resolvedImageUrl]);
 
   return (
     <Dialog
@@ -1382,7 +1410,7 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
             }}
           >
             <img
-              src={imageUrl}
+              src={resolvedImageUrl}
               alt="Document"
               style={{
                 transform: `scale(${zoom}) rotate(${rotation}deg)`,
@@ -1404,7 +1432,7 @@ const ImageViewerModal = ({ open, onClose, imageUrl, title }) => {
             }}
           >
             <iframe
-              src={imageUrl}
+              src={resolvedImageUrl}
               title={title || "Document Viewer"}
               style={{
                 width: "100%",

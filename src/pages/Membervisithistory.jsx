@@ -772,11 +772,21 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
     try {
       const date = selectedAttendanceDate();
       const res   = await apiFetch("/attendance", {
-        startDate: date, endDate: date, limit: 1,
+        startDate: date, endDate: date, limit: 10,
         userId: targetUserId,
       });
       const list = res?.data?.attendances || res?.result?.attendances || res?.data || [];
-      const att  = Array.isArray(list) ? list[0] : list;
+      const att  = Array.isArray(list)
+        ? [...list].sort((a, b) => {
+            const aPunchOut = a?.punchOut?.time ? 1 : 0;
+            const bPunchOut = b?.punchOut?.time ? 1 : 0;
+            if (aPunchOut !== bPunchOut) return bPunchOut - aPunchOut;
+
+            const aTime = new Date(a?.punchOut?.time || a?.punchIn?.time || a?.date || 0).getTime();
+            const bTime = new Date(b?.punchOut?.time || b?.punchIn?.time || b?.date || 0).getTime();
+            return bTime - aTime;
+          })[0]
+        : list;
 
       if (att?.punchIn?.time) {
         const out = !!att?.punchOut?.time;
@@ -1506,7 +1516,7 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
                 <Box sx={{ p: 3 }}>
 
                   {/* ── Punch In header ── */}
-                  {punchInLocation?.address && (
+                  {punchInLocation?.time && (
                     <Box sx={{ mb: 0 }}>
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
