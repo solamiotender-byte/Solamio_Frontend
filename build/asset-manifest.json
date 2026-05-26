@@ -1,0 +1,14 @@
+{
+  "files": {
+    "main.css": "/static/css/main.796d6913.css",
+    "main.js": "/static/js/main.c05f5bf9.js",
+    "static/media/sunergy-tech-logo.svg": "/static/media/sunergy-tech-logo.01e16aa5cc49a84085a21ad482197ba2.svg",
+    "index.html": "/index.html",
+    "main.796d6913.css.map": "/static/css/main.796d6913.css.map",
+    "main.c05f5bf9.js.map": "/static/js/main.c05f5bf9.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.796d6913.css",
+    "static/js/main.c05f5bf9.js"
+  ]
+}

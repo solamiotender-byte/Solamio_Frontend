@@ -1,11 +1,11 @@
 {
-  "short_name": "Solar Software",
-  "name": "Solar Software Management",
+  "short_name": "Sunergy Tech",
+  "name": "Sunergy Tech",
   "icons": [
     {
-      "src": "logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml"
+      "src": "solar_crm_icon_square.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
     }
   ],
   "start_url": ".",

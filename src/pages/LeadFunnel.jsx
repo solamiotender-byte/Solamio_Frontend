@@ -46,6 +46,7 @@ import {
   Fade,
   Zoom,
   Fab,
+  Snackbar,
   BottomNavigation,
   BottomNavigationAction,
   SwipeableDrawer,
@@ -913,7 +914,7 @@ const EmptyState = ({ stage, hasFilters, onClearFilters }) => (
 
 // ========== MAIN COMPONENT ==========
 export default function LeadFunnelDashboard() {
-  const { fetchAPI } = useAuth();
+  const { fetchAPI, user } = useAuth();
   const theme = useTheme();
   const navigate = useNavigate();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -932,6 +933,12 @@ export default function LeadFunnelDashboard() {
   const [period, setPeriod] = useState("Today");
   const [stageFilter, setStageFilter] = useState("all");
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [dialogActionLoading, setDialogActionLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: "",
+    severity: "success",
+  });
 
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -1092,6 +1099,94 @@ export default function LeadFunnelDashboard() {
     setSelectedLead(lead);
     setOpenDialog(true);
   };
+
+  const showSnackbar = useCallback((message, severity = "success") => {
+    setSnackbar({
+      open: true,
+      message,
+      severity,
+    });
+  }, []);
+
+  const handleCloseSnackbar = useCallback(() => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  }, []);
+
+  const handleEditLead = useCallback((lead) => {
+    if (!lead?._id) {
+      showSnackbar("Lead details are missing for this record", "error");
+      return;
+    }
+
+    setOpenDialog(false);
+    navigate("/all-leads");
+    showSnackbar("Opened leads list. Use the edit action there for this lead.", "info");
+  }, [navigate, showSnackbar]);
+
+  const handleCallLead = useCallback((lead) => {
+    if (!lead?.phone) {
+      showSnackbar("Phone number is not available for this lead", "warning");
+      return;
+    }
+
+    window.location.href = `tel:${lead.phone}`;
+  }, [showSnackbar]);
+
+  const handleSendEmail = useCallback((lead) => {
+    if (!lead?.email) {
+      showSnackbar("Email address is not available for this lead", "warning");
+      return;
+    }
+
+    window.location.href = `mailto:${lead.email}`;
+  }, [showSnackbar]);
+
+  const handleMoveToNextStage = useCallback(async (lead) => {
+    if (!lead?._id) {
+      showSnackbar("Lead details are missing for this record", "error");
+      return;
+    }
+
+    const currentStage = lead.status || selectedStage;
+    const currentStageIndex = STAGE_ORDER.indexOf(currentStage);
+    const nextStage =
+      currentStageIndex >= 0 && currentStageIndex < STAGE_ORDER.length - 1
+        ? STAGE_ORDER[currentStageIndex + 1]
+        : null;
+
+    if (!nextStage) {
+      showSnackbar("This lead is already at the final stage", "info");
+      return;
+    }
+
+    setDialogActionLoading(true);
+    try {
+      const response = await fetchAPI(`/lead/updateLead/${lead._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: nextStage,
+          updatedBy: user?._id,
+          updatedByRole: user?.role,
+        }),
+      });
+
+      if (!response?.success) {
+        throw new Error(response?.message || "Failed to move lead to the next stage");
+      }
+
+      const updatedLead = response.result || { ...lead, status: nextStage };
+      setSelectedLead(updatedLead);
+      setOpenDialog(false);
+      await fetchFunnelData();
+      showSnackbar(`Lead moved to ${nextStage}`, "success");
+    } catch (error) {
+      console.error("Error moving lead to next stage:", error);
+      showSnackbar(error.message || "Failed to move lead to the next stage", "error");
+    } finally {
+      setDialogActionLoading(false);
+    }
+  }, [fetchAPI, fetchFunnelData, selectedStage, showSnackbar, user]);
 
   const handlePageChange = (event, newPage) => {
     setPagination((prev) => ({ ...prev, page: newPage }));
@@ -1792,7 +1887,23 @@ export default function LeadFunnelDashboard() {
         stage={selectedStage}
         isMobile={isMobile}
         stageColor={stageConfig.color}
+        onEditLead={handleEditLead}
+        onCallLead={handleCallLead}
+        onSendEmail={handleSendEmail}
+        onMoveToNextStage={handleMoveToNextStage}
+        actionLoading={dialogActionLoading}
       />
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: "100%" }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
 
       {/* Mobile FAB */}
       {isMobile && (
@@ -2178,7 +2289,19 @@ const LeadTable = ({ leads, stageColor, onView }) => {
 };
 
 // Component: Lead Detail Dialog
-const LeadDetailDialog = ({ open, onClose, lead, stage, isMobile, stageColor }) => {
+const LeadDetailDialog = ({
+  open,
+  onClose,
+  lead,
+  stage,
+  isMobile,
+  stageColor,
+  onEditLead,
+  onCallLead,
+  onSendEmail,
+  onMoveToNextStage,
+  actionLoading,
+}) => {
   if (!lead) return null;
 
   const config = STAGE_CONFIG[stage] || STAGE_CONFIG.Visit;
@@ -2354,6 +2477,7 @@ const LeadDetailDialog = ({ open, onClose, lead, stage, isMobile, stageColor }) 
                       startIcon={<Edit />}
                       size="small"
                       sx={{ borderRadius: 2 }}
+                      onClick={() => onEditLead?.(lead)}
                     >
                       Edit Lead
                     </Button>
@@ -2363,6 +2487,7 @@ const LeadDetailDialog = ({ open, onClose, lead, stage, isMobile, stageColor }) 
                       startIcon={<Phone />}
                       size="small"
                       sx={{ borderRadius: 2 }}
+                      onClick={() => onCallLead?.(lead)}
                     >
                       Call Lead
                     </Button>
@@ -2372,6 +2497,7 @@ const LeadDetailDialog = ({ open, onClose, lead, stage, isMobile, stageColor }) 
                       startIcon={<Email />}
                       size="small"
                       sx={{ borderRadius: 2 }}
+                      onClick={() => onSendEmail?.(lead)}
                     >
                       Send Email
                     </Button>
@@ -2408,13 +2534,15 @@ const LeadDetailDialog = ({ open, onClose, lead, stage, isMobile, stageColor }) 
         <Button
           variant="contained"
           fullWidth={isMobile}
+          onClick={() => onMoveToNextStage?.(lead)}
+          disabled={actionLoading}
           sx={{
             bgcolor: PRIMARY_COLOR,
             borderRadius: 2,
             "&:hover": { bgcolor: SECONDARY_COLOR },
           }}
         >
-          Move to Next Stage
+          {actionLoading ? "Moving..." : "Move to Next Stage"}
         </Button>
       </DialogActions>
     </Dialog>
