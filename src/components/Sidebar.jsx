@@ -47,7 +47,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { useAuth } from "../contexts/AuthContext";
-import SunergyTechLogo from "../assets/sunergy-tech-logo.svg";
+import SunergyTechLogo from "../assets/solamio-logo.png";
+import BrandSquareIcon from "../assets/solar_crm_icon_square.png";
 
 // ─── Color Constants ──────────────────────────────────────────────────────────
 const PRIMARY_COLOR = "#4569ea";
@@ -355,32 +356,48 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
     >
       <Box
         sx={{
-          width: effectiveCollapsed ? 36 : 42,
-          height: effectiveCollapsed ? 36 : 42,
-          borderRadius: "10px",
-          bgcolor: "rgba(255,255,255,0.15)",
+          width: effectiveCollapsed ? 38 : 52,
+          height: effectiveCollapsed ? 38 : 52,
+          borderRadius: effectiveCollapsed ? "10px" : "14px",
+          bgcolor: "#fff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          border: "2px solid rgba(255,255,255,0.28)",
+          border: "1px solid rgba(255,255,255,0.34)",
+          boxShadow: "0 8px 18px rgba(0,0,0,0.16)",
+          overflow: "hidden",
           flexShrink: 0,
         }}
       >
-<Box component="img" src={SunergyTechLogo} alt="Sunergy Tech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
+        <Box
+          component="img"
+          src={effectiveCollapsed ? BrandSquareIcon : SunergyTechLogo}
+          alt="SOLAMIO logo"
+          sx={{
+            width: "100%",
+            height: "100%",
+            objectFit: effectiveCollapsed ? "cover" : "contain",
+            p: effectiveCollapsed ? 0 : 0.55,
+          }}
+        />
       </Box>
       {!effectiveCollapsed && (
-        <Box sx={{ overflow: "hidden" }}>
+        <Box sx={{ overflow: "hidden", minWidth: 0 }}>
           <Typography
             variant="subtitle1"
             color={TEXT_COLOR}
             fontWeight={800}
-            sx={{ lineHeight: 1.2, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}
+            sx={{ lineHeight: 1.05, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}
           >
-          Sunergy Tech
+            SOLAMIO
           </Typography>
           <Typography
             variant="caption"
-            sx={{ color: "rgba(255,255,255,0.7)", fontSize: "0.68rem" }}
+            sx={{
+              color: "rgba(255,255,255,0.78)",
+              fontSize: "0.68rem",
+              whiteSpace: "nowrap",
+            }}
           >
             Solar Management
           </Typography>
@@ -406,30 +423,37 @@ path: user?.role === "TEAM" ? "/add-visit" : "/team-tracking",
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
         <Box
           sx={{
-            width: 40,
-            height: 40,
-            borderRadius: "10px",
-            bgcolor: "rgba(255,255,255,0.15)",
+            width: 48,
+            height: 48,
+            borderRadius: "14px",
+            bgcolor: "#fff",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            border: "2px solid rgba(255,255,255,0.28)",
+            border: "1px solid rgba(255,255,255,0.34)",
+            boxShadow: "0 8px 18px rgba(0,0,0,0.16)",
+            overflow: "hidden",
+            flexShrink: 0,
           }}
         >
-          <Box component="img" src={SunergyTechLogo} alt="Sunergy Tech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.5 }} />
+          <Box component="img" src={SunergyTechLogo} alt="SOLAMIO logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.55 }} />
         </Box>
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography
             variant="subtitle1"
             color={TEXT_COLOR}
             fontWeight={800}
-            sx={{ lineHeight: 1.2 }}
+            sx={{ lineHeight: 1.05, whiteSpace: "nowrap" }}
           >
-            Sunergy Tech
+            SOLAMIO
           </Typography>
           <Typography
             variant="caption"
-            sx={{ color: "rgba(255,255,255,0.7)", fontSize: "0.68rem" }}
+            sx={{
+              color: "rgba(255,255,255,0.78)",
+              fontSize: "0.66rem",
+              whiteSpace: "nowrap",
+            }}
           >
             Solar Management
           </Typography>
@@ -692,32 +716,49 @@ export const MobileTopBar = ({ onMenuClick, title = "Dashboard" }) => {
           </IconButton>
         </Tooltip>
 
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
           <Box
             sx={{
-              width: 32,
-              height: 32,
-              borderRadius: "8px",
-              bgcolor: "rgba(255,255,255,0.15)",
+              width: 36,
+              height: 36,
+              borderRadius: "10px",
+              bgcolor: "#fff",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              border: "1.5px solid rgba(255,255,255,0.25)",
+              border: "1px solid rgba(255,255,255,0.28)",
+              boxShadow: "0 6px 14px rgba(0,0,0,0.16)",
+              overflow: "hidden",
+              flexShrink: 0,
             }}
           >
-            <Box component="img" src={SunergyTechLogo} alt="Sunergy Tech logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.35 }} />
+            <Box component="img" src={SunergyTechLogo} alt="SOLAMIO logo" sx={{ width: "100%", height: "100%", objectFit: "contain", p: 0.45 }} />
           </Box>
-          <Typography
-            variant="subtitle1"
-            sx={{
-              color: "#fff",
-              fontWeight: 800,
-              letterSpacing: "-0.01em",
-              fontSize: "1rem",
-            }}
-          >
-            Sunergy Tech
-          </Typography>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              variant="subtitle1"
+              sx={{
+                color: "#fff",
+                fontWeight: 800,
+                letterSpacing: "-0.01em",
+                fontSize: "1rem",
+                lineHeight: 1.05,
+                whiteSpace: "nowrap",
+              }}
+            >
+              SOLAMIO
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                color: "rgba(255,255,255,0.78)",
+                fontSize: "0.66rem",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Solar Management
+            </Typography>
+          </Box>
         </Box>
 
         <Typography

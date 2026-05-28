@@ -14,7 +14,7 @@
   import axios from "axios";
   import { useNavigate } from "react-router-dom";
 
-  const API = "  https://solar-backend-2-r6k9.onrender.com";
+  const API = "  https://solamio-backend.onrender.com";
   const PRIMARY = "#136dec";
 
   // ── Helpers ───────────────────────────────────────────────────────────────────

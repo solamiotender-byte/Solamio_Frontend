@@ -141,7 +141,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 // ========== CONSTANTS & CONFIGURATION ==========
 const PRIMARY = "#4569ea";
 const SECONDARY = "#1a237e";
-const DOCUMENT_BASE_URL = "https://solar-backend-2-r6k9.onrender.com";
+const DOCUMENT_BASE_URL = "https://solamio-backend.onrender.com";
 const ITEMS_PER_PAGE_OPTIONS = [5, 10, 25, 50];
 const DEFAULT_ITEMS_PER_PAGE = 10;
 

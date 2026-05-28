@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "https://solar-backend-2-r6k9.onrender.com";
+const SOCKET_URL = "https://solamio-backend.onrender.com";
 
 let globalSocket = null;
 let currentToken = null;

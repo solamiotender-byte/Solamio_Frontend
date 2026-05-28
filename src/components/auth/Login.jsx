@@ -32,7 +32,7 @@ import {
   CheckCircleOutline,
 } from "@mui/icons-material";
 import { useAuth } from "../../contexts/AuthContext";
-import logo from "../../assets/sunergy-tech-logo.svg";
+import logo from "../../assets/solamio-logo.png";
 
 const COLOR = "#4569ea";
 const COLOR_LIGHT = "#5c7cec";
@@ -862,7 +862,7 @@ const Login = () => {
                   variant="caption"
                   sx={{ color: COLOR, fontWeight: 500 }}
                 >
-                   Sunergy Tech Mobile
+                   SOLAMIO Mobile
                 </Typography>
               </Box>
             )}
@@ -901,7 +901,7 @@ const Login = () => {
                   {/* Logo Image */}
                   <img
                     src={logo}
-                    alt="Sunergy Tech logo"
+                    alt="SOLAMIO logo"
                     style={{
                       width: "120%",
                       height: "120%",
@@ -920,7 +920,7 @@ const Login = () => {
                     letterSpacing: "0.5px",
                   }}
                 >
-                  Welcome Back to Sunergy Tech
+                  Welcome Back to SOLAMIO
                 </Typography>
               </Box>
             </Fade>
@@ -1258,7 +1258,7 @@ const Login = () => {
                   lineHeight: 1.4,
                 }}
               >
-                {"\u00A9"} {new Date().getFullYear()} Sunergy Tech.
+                {"\u00A9"} {new Date().getFullYear()} SOLAMIO.
                 All rights reserved.
                 <Typography
                   component="span"

@@ -152,7 +152,7 @@ const ALLOWED_FILE_TYPES = [
 
 const IMAGE_DOCUMENT_REGEX = /\.(jpg|jpeg|png|gif|bmp|webp)(\?.*)?$/i;
 const PDF_DOCUMENT_REGEX = /\.pdf(\?.*)?$/i;
-const DOCUMENT_BASE_URL = "https://solar-backend-2-r6k9.onrender.com";
+const DOCUMENT_BASE_URL = "https://solamio-backend.onrender.com";
 
 const normalizeHostedDocumentUrl = (url) => {
   if (!url) return "";

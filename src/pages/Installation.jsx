@@ -147,7 +147,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 
 // ========== CONSTANTS & CONFIGURATION ==========
 const PRIMARY_COLOR = "#4569ea";
-const DOCUMENT_BASE_URL = "https://solar-backend-2-r6k9.onrender.com";
+const DOCUMENT_BASE_URL = "https://solamio-backend.onrender.com";
 
 const normalizeHostedDocumentUrl = (url) => {
   if (!url) return "";
