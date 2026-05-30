@@ -14,7 +14,7 @@
   import axios from "axios";
   import { useNavigate } from "react-router-dom";
 
-  const API = "  https://solamio-backend.onrender.com";
+  const API = "https://solamio-backend.onrender.com";
   const PRIMARY = "#136dec";
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -80,6 +80,20 @@
       color: "#64748b",
       dotColor: "#94a3b8",
       pulse: false,
+    },
+    location_off: {
+      label: "Location Off",
+      bg: alpha("#ef4444", 0.1),
+      color: "#dc2626",
+      dotColor: "#ef4444",
+      pulse: true,
+    },
+    no_signal: {
+      label: "No Signal",
+      bg: alpha("#f59e0b", 0.12),
+      color: "#d97706",
+      dotColor: "#f59e0b",
+      pulse: true,
     },
   };
 
@@ -303,25 +317,51 @@ try {
           console.error("Battery fetch failed:", e.message);
         }
 
-        // Step 5: Map attendance by userId
+        // Step 5: Fetch tracking status for field users
+        let trackingStatusMap = {};
+        try {
+          const userIds = rawUsers.map((u) => String(u._id || u.id)).filter(Boolean);
+          if (userIds.length > 0) {
+            const trackingRes = await axios.get(`${API}/api/v1/tracking-status`, {
+              headers, params: { userIds: userIds.join(",") },
+            });
+            const trackingStatuses = trackingRes.data?.data || trackingRes.data?.result || [];
+            trackingStatuses.forEach((entry) => {
+              const key = String(entry.userId || entry.user?._id || entry.user || "");
+              if (key) trackingStatusMap[key] = entry;
+            });
+          }
+        } catch (e) {
+          if (handleAuthError(e)) return;
+          console.error("Tracking status fetch failed:", e.message);
+        }
+
+        // Step 6: Map attendance by userId
         const attMap = {};
         attendances.forEach((a) => {
           const uid = String(a.user?._id || a.user?.id || a.user || "");
           if (uid) attMap[uid] = a;
         });
 
-        // Step 6: Count visits by userId
+        // Step 7: Count visits by userId
         const visitCountMap = {};
         visits.forEach((v) => {
           const uid = String(v.user?._id || v.user?.id || v.user || "");
           if (uid) visitCountMap[uid] = (visitCountMap[uid] || 0) + 1;
         });
 
-        // Step 7: Merge into member objects
+        // Step 8: Merge into member objects
         const merged = rawUsers.map((u) => {
           const uid = String(u._id || u.id || "");
           const att = attMap[uid] || null;
-          const status = getDutyStatus(att, u);
+          const baseStatus = getDutyStatus(att, u);
+          const trackingStatus = trackingStatusMap[uid] || null;
+          const status =
+            baseStatus === "active" && trackingStatus?.derivedState === "location_off"
+              ? "location_off"
+              : baseStatus === "active" && trackingStatus?.derivedState === "no_signal"
+              ? "no_signal"
+              : baseStatus;
           const punchInTime = att?.punchIn?.time ? formatTime(att.punchIn.time) : null;
           const punchOutTime = att?.punchOut?.time ? formatTime(att.punchOut.time) : null;
           const punchBattery = att?.punchIn?.battery || att?.metadata?.batteryAtPunchIn || null;
@@ -364,6 +404,9 @@ try {
             visits: visitCountMap[uid] || 0,
             batteryPercentage: resolvedBatteryPercentage,
             isCharging: resolvedIsCharging,
+            lastHeartbeatAt: trackingStatus?.lastHeartbeatAt || null,
+            trackingState: trackingStatus?.derivedState || "ok",
+            trackingReason: trackingStatus?.lastLocationOffReason || "",
           };
         });
 

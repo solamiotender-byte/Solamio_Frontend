@@ -21,7 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import LiveTrackMap from "../utils/Livetrackmap";
 
-const API = "  https://solamio-backend.onrender.com";
+const API = "https://solamio-backend.onrender.com";
 
 const avatarColors = [
   "#4569ea", "#7c3aed", "#0ea5e9", "#f59e0b",
@@ -669,8 +669,8 @@ const TeamAttendance = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [attendanceSettings, setAttendanceSettings] = useState({
-    officePunchInTime: "10:00",
-    officePunchOutTime: "19:00",
+    officePunchInTime: "08:00",
+    officePunchOutTime: "22:00",
     blockEarlyPunchIn: true,
     autoPunchOutEnabled: true,
   });

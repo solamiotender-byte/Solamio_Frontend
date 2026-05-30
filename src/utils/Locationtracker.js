@@ -12,7 +12,7 @@
 //
 // 4. watchPosition maximumAge:0 — never serve a cached position.
 //
-// 5. MIN_MOVE_METRES = 20 with accuracy-aware gating to suppress stationary GPS drift.
+// 5. MIN_MOVE_METRES = 8 with accuracy-aware gating to suppress stationary GPS drift.
 
 import { toast } from "../components/useToast.jsx";
 
@@ -65,9 +65,9 @@ async function reverseGeocode(lat, lng) {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DWELL_RADIUS_M  = 50;
-const DWELL_TIME_MS   = 10 * 60 * 1000;  // 10 minutes
+const DWELL_TIME_MS   = 15 * 60 * 1000;  // 15 minutes
 const COOLDOWN_MS     = 30 * 60 * 1000;  // 30 minutes
-const MIN_MOVE_METRES = 20;               // ignore short GPS drift when user is stationary
+const MIN_MOVE_METRES = 8;                // ignore only very small GPS drift when user is stationary
 const MAX_REASONABLE_ACCURACY_METRES = 80;
 const TRACKING_POLL_MS = 10_000;          // backup GPS poll for browsers that throttle watchPosition
 
@@ -507,7 +507,7 @@ async function handleAutoVisit(pt) {
   }
 }
 
-async function createAutoVisit(lat, lng, dwellMins = 10) {
+async function createAutoVisit(lat, lng, dwellMins = 15) {
   const token = getToken();
   if (!token) return;
   const geo = await reverseGeocode(lat, lng);

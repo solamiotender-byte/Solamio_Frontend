@@ -18,7 +18,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { stopTracking, isCurrentlyTracking } from "../utils/Locationtracker.js";
 import LiveTrackingMap from "../utils/Livetrackmap.jsx";
 
-const BASE_URL = "  https://solamio-backend.onrender.com/api/v1";
+const BASE_URL = "https://solamio-backend.onrender.com/api/v1";
 const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
 const PHOTO_BACKEND_ORIGINS = [
   BACKEND_ORIGIN,
@@ -196,6 +196,22 @@ const getDateRange = (r) => {
 
   return {};
 };
+
+const getSelectedDayKey = (dateRange) => {
+  if (dateRange && /^\d{4}-\d{2}-\d{2}$/.test(dateRange)) return dateRange;
+
+  const date = new Date();
+  if (dateRange === "yesterday") {
+    date.setDate(date.getDate() - 1);
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const isSingleDayFilter = (dateRange) =>
+  dateRange === "today" ||
+  dateRange === "yesterday" ||
+  /^\d{4}-\d{2}-\d{2}$/.test(dateRange || "");
 
 const getRecentDays = () => {
   const days = [];
@@ -892,15 +908,12 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
 
   const fetchGpsDistance = useCallback(async () => {
     if (!targetUserId) return;
+    if (!isSingleDayFilter(filters.dateRange)) {
+      setGpsDistance(null);
+      return;
+    }
     try {
-      const selectedDate =
-        filters.dateRange?.match(/^\d{4}-\d{2}-\d{2}$/)
-          ? filters.dateRange
-          : (() => {
-              const now = new Date();
-              if (filters.dateRange === "yesterday") now.setDate(now.getDate() - 1);
-              return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-            })();
+      const selectedDate = getSelectedDayKey(filters.dateRange);
       const res = await apiFetch("/location/distance", { date: selectedDate, salesmanId: targetUserId });
       const data  = res?.data || res?.result || res;
       setGpsDistance({ totalKm: data?.totalKm ?? 0, totalPoints: data?.totalPoints ?? 0 });
@@ -908,30 +921,37 @@ const targetUserId = userId || authUser?._id || authUser?.id || authUser?.userId
   }, [filters.dateRange, targetUserId]);
 
   const fetchDetectedStops = useCallback(async () => {
-    if (!targetUserId) return;
+    if (!targetUserId || !isSingleDayFilter(filters.dateRange)) {
+      setDetectedStops([]);
+      return;
+    }
     try {
-      const date = selectedAttendanceDate();
-      const res = await apiFetch("/location/stops", { date, salesmanId: targetUserId });
+      const date = getSelectedDayKey(filters.dateRange);
+      const res = await apiFetch("/location/stays", {
+        date,
+        salesmanId: targetUserId,
+        minimumStayMinutes: 15,
+      });
       const data = res?.data || res?.result || res;
-      const stops = Array.isArray(data?.stops) ? data.stops : [];
-      setDetectedStops(stops.map((stop, index) => ({
-        _id: stop.id || `auto-stop-${index}`,
-        locationName: stop.locationName || `Stopped ${stop.dwellMinutes || 15} min`,
-        address: stop.address,
-        status: "Auto Stop",
-        lat: stop.lat,
-        lng: stop.lng,
-        coordinates: { lat: stop.lat, lng: stop.lng },
-        checkInTime: stop.checkInTime,
-        checkOutTime: stop.checkOutTime,
-        dwellMinutes: stop.dwellMinutes,
+      const stayedLocations = Array.isArray(data?.stayedLocations) ? data.stayedLocations : [];
+      setDetectedStops(stayedLocations.map((stay, index) => ({
+        _id: stay.id || stay._id || `auto-stay-${index}`,
+        locationName: stay.locationName || `Stayed ${stay.dwellMinutes || stay.durationMinutes || 15} min`,
+        address: stay.address,
+        status: "Stayed 15+ Min",
+        lat: stay.lat,
+        lng: stay.lng,
+        coordinates: { lat: stay.lat, lng: stay.lng },
+        checkInTime: stay.checkInTime || stay.startTime,
+        checkOutTime: stay.checkOutTime || stay.endTime,
+        dwellMinutes: stay.dwellMinutes || stay.durationMinutes,
         autoDetected: true,
       })));
     } catch (e) {
-      console.warn("Detected stops fetch failed:", e.message);
+      console.warn("Stayed locations fetch failed:", e.message);
       setDetectedStops([]);
     }
-  }, [targetUserId, selectedAttendanceDate]);
+  }, [filters.dateRange, targetUserId]);
 
   const fetchLatestBattery = useCallback(async () => {
     if (!targetUserId) return;
